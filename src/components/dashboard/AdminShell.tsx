@@ -145,8 +145,8 @@ function getCustomerProcessStages(c:any):Set<string>{
 }
 
 /* ─── COLOURS ────────────────────────────────────────────────── */
-const LIGHT={bg:'#f0f4f8',surface:'#ffffff',border:'#e2e8f0',text:'#0f172a',textSec:'#64748b',primary:'#6366f1',sidebar:'#1e1b4b',sidebarText:'#a5b4fc',input:'#ffffff',inputBorder:'#c7d2fe',accent:'#8b5cf6'}
-const DARK= {bg:'#0a0f1e',surface:'#111827',border:'#1f2937',text:'#f1f5f9',textSec:'#94a3b8',primary:'#818cf8',sidebar:'#060b16',sidebarText:'#818cf8',input:'#1f2937',inputBorder:'#374151',accent:'#a78bfa'}
+const LIGHT={bg:'#f1f5f9',surface:'#ffffff',border:'#e2e8f0',text:'#0f172a',textSec:'#64748b',primary:'#1d4ed8',sidebar:'#0f172a',sidebarText:'#94a3b8',input:'#ffffff',inputBorder:'#cbd5e1'}
+const DARK= {bg:'#0f172a',surface:'#1e293b',border:'#334155',text:'#f1f5f9',textSec:'#94a3b8',primary:'#3b82f6',sidebar:'#020617',sidebarText:'#94a3b8',input:'#1e293b',inputBorder:'#475569'}
 const EMPTY_UH={name:'',phone:'',email:'',address:'',amount:'',note:''}
 const TODAY=new Date().toISOString().split('T')[0]
 
@@ -734,7 +734,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
       <aside style={{width:260,flexShrink:0,background:C.sidebar,color:C.sidebarText,display:'flex',flexDirection:'column',height:'100vh',overflowY:'auto',...(isMobile?{position:'fixed' as const,top:0,left:0,zIndex:1000,transform:sidebarOpen?'translateX(0)':'translateX(-100%)',transition:'transform 0.3s ease'}:{})}}>
         <div style={{padding:'28px 24px 24px'}}>
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
-            <div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 12px rgba(99,102,241,0.4)'}}>
+            <div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,#1d4ed8,#2563eb)',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 12px rgba(99,102,241,0.4)'}}>
               <i className="fas fa-droplet" style={{fontSize:16,color:'white'}}/>
             </div>
             <div>
@@ -943,62 +943,140 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
         </>}
 
         {/* ── KALENDER ── */}
-        {page==='kalender'&&<>
-          <div style={{background:C.surface,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',padding:isMobile?16:24}}>
-            {/* Header */}
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20,gap:8}}>
-              <button onClick={()=>{let m=calMonth-1,y=calYear;if(m<0){m=11;y--}setCalMonth(m);setCalYear(y)}} style={{...btn(C.bg,C.text),padding:'8px 14px',border:`1px solid ${C.border}`}}><i className="fas fa-chevron-left"/></button>
-              <h2 style={{fontSize:isMobile?17:22,fontWeight:700,color:C.text,margin:0}}>{MONTH_NAMES[calMonth]} {calYear}</h2>
-              <button onClick={()=>{let m=calMonth+1,y=calYear;if(m>11){m=0;y++}setCalMonth(m);setCalYear(y)}} style={{...btn(C.bg,C.text),padding:'8px 14px',border:`1px solid ${C.border}`}}><i className="fas fa-chevron-right"/></button>
-            </div>
-            {/* Day headers */}
-            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:4}}>
-              {DAY_NAMES.map(d=>(
-                <div key={d} style={{textAlign:'center',fontSize:11,fontWeight:700,color:C.textSec,padding:'6px 2px',letterSpacing:'0.05em',textTransform:'uppercase' as const}}>{d}</div>
+        {page==='kalender'&&(()=>{
+  const MONTH_NAMES=['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December']
+  const DAY_NAMES=['Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag','Söndag']
+  const DAY_SHORT=['Mån','Tis','Ons','Tor','Fre','Lör','Sön']
+
+  // Beräkna veckans start (måndag)
+  const getWeekStart=(date:Date)=>{
+    const d=new Date(date)
+    const day=d.getDay()
+    const diff=day===0?-6:1-day
+    d.setDate(d.getDate()+diff)
+    d.setHours(0,0,0,0)
+    return d
+  }
+
+  const weekStart=getWeekStart(new Date(calYear,calMonth,calYear===new Date().getFullYear()&&calMonth===new Date().getMonth()?new Date().getDate():1))
+
+  // Navigera vecka
+  const [weekOffset,setWeekOffset]=useState(0)
+  const currentWeekStart=new Date(weekStart)
+  currentWeekStart.setDate(currentWeekStart.getDate()+weekOffset*7)
+
+  const weekDays=Array.from({length:7},(_,i)=>{
+    const d=new Date(currentWeekStart)
+    d.setDate(d.getDate()+i)
+    return d
+  })
+
+  const todayStr=new Date().toISOString().split('T')[0]
+  const weekLabel=`${currentWeekStart.getDate()} ${MONTH_NAMES[currentWeekStart.getMonth()]} – ${weekDays[6].getDate()} ${MONTH_NAMES[weekDays[6].getMonth()]} ${weekDays[6].getFullYear()}`
+
+  return(
+    <div>
+      {/* Navigation */}
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,flexWrap:'wrap' as const}}>
+        <button onClick={()=>setWeekOffset(w=>w-1)} style={{padding:'8px 14px',border:`1px solid ${C.border}`,background:C.surface,color:C.text,borderRadius:10,cursor:'pointer',fontSize:16,fontWeight:600}}>‹</button>
+        <button onClick={()=>setWeekOffset(0)} style={{padding:'6px 14px',border:`1px solid ${C.border}`,background:C.surface,color:C.primary,borderRadius:10,cursor:'pointer',fontSize:12,fontWeight:600}}>Idag</button>
+        <span style={{fontSize:isMobile?14:18,fontWeight:700,color:C.text,flex:1,textAlign:'center'}}>{weekLabel}</span>
+        <button onClick={()=>setWeekOffset(w=>w+1)} style={{padding:'8px 14px',border:`1px solid ${C.border}`,background:C.surface,color:C.text,borderRadius:10,cursor:'pointer',fontSize:16,fontWeight:600}}>›</button>
+      </div>
+
+      {/* Veckokalender */}
+      <div style={{background:C.surface,borderRadius:16,border:`1px solid ${C.border}`,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+        {/* Dag-headers */}
+        <div style={{display:'grid',gridTemplateColumns:isMobile?'60px repeat(7,1fr)':'80px repeat(7,1fr)',borderBottom:`1px solid ${C.border}`}}>
+          <div style={{padding:'12px 8px',background:C.bg,borderRight:`1px solid ${C.border}`}}/>
+          {weekDays.map((d,i)=>{
+            const dateStr=d.toISOString().split('T')[0]
+            const isToday=dateStr===todayStr
+            return(
+              <div key={i} style={{padding:'12px 8px',textAlign:'center',background:isToday?`${C.primary}10`:C.bg,borderRight:i<6?`1px solid ${C.border}`:'none'}}>
+                <div style={{fontSize:isMobile?10:12,fontWeight:600,color:C.textSec,marginBottom:4}}>{isMobile?DAY_SHORT[i]:DAY_NAMES[i]}</div>
+                <div style={{width:30,height:30,borderRadius:'50%',background:isToday?C.primary:'transparent',color:isToday?'white':C.text,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto',fontSize:14,fontWeight:isToday?700:400}}>{d.getDate()}</div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Jobb per dag */}
+        <div style={{display:'grid',gridTemplateColumns:isMobile?'60px repeat(7,1fr)':'80px repeat(7,1fr)',minHeight:300}}>
+          {/* Tidsetikett */}
+          <div style={{borderRight:`1px solid ${C.border}`,padding:'12px 8px',display:'flex',flexDirection:'column',gap:4,alignItems:'center'}}>
+            <span style={{fontSize:10,color:C.textSec,fontWeight:600}}>JOBB</span>
+          </div>
+          {weekDays.map((d,i)=>{
+            const dateStr=d.toISOString().split('T')[0]
+            const dayJobs=customers.filter(c=>c.booked_date===dateStr&&!c.rejected)
+            const isToday=dateStr===todayStr
+            return(
+              <div key={i} style={{borderRight:i<6?`1px solid ${C.border}`:'none',padding:6,background:isToday?`${C.primary}05`:'transparent',minHeight:200}}>
+                {dayJobs.length===0
+                  ?<div style={{height:'100%',minHeight:80,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    <span style={{fontSize:10,color:C.border}}>–</span>
+                  </div>
+                  :dayJobs.map(c=>{
+                    const svcs=getServices(c)
+                    const statusColors:Record<string,string>={new:'#f59e0b',in_progress:C.primary,completed:'#10b981',rejected:'#ef4444'}
+                    const s=getStatus(c)
+                    return(
+                      <div key={c.id} onClick={()=>openCustomer(c)} style={{background:`${statusColors[s]}15`,border:`1.5px solid ${statusColors[s]}40`,borderLeft:`3px solid ${statusColors[s]}`,borderRadius:8,padding:'6px 8px',marginBottom:6,cursor:'pointer',transition:'all 0.15s'}}
+                        onMouseEnter={e=>(e.currentTarget.style.background=`${statusColors[s]}25`)}
+                        onMouseLeave={e=>(e.currentTarget.style.background=`${statusColors[s]}15`)}>
+                        <div style={{fontSize:isMobile?10:12,fontWeight:700,color:C.text,marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
+                        <div style={{fontSize:10,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</div>
+                        {svcs.length>0&&<div style={{fontSize:9,color:statusColors[s],fontWeight:600,marginTop:2}}>{svcs.map((sv:string)=>svcLabel(sv)).join(', ')}</div>}
+                        {(parseFloat(c.price_excl_vat)||0)>0&&<div style={{fontSize:10,fontWeight:700,color:'#10b981',marginTop:2}}>{fmtCur(parseFloat(c.price_excl_vat))}</div>}
+                      </div>
+                    )
+                  })
+                }
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Denna veckas jobb - summering */}
+      {(()=>{
+        const thisWeekJobs=customers.filter(c=>{
+          if(!c.booked_date||c.rejected)return false
+          const d=new Date(c.booked_date)
+          return d>=currentWeekStart&&d<=weekDays[6]
+        })
+        if(thisWeekJobs.length===0)return null
+        return(
+          <div style={{marginTop:16,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,padding:'16px 20px'}}>
+            <h3 style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:12,display:'flex',alignItems:'center',gap:8}}>
+              <i className="fas fa-list-ul" style={{color:C.primary}}/> Veckans jobb ({thisWeekJobs.length} st)
+            </h3>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {thisWeekJobs.sort((a,b)=>a.booked_date.localeCompare(b.booked_date)).map(c=>(
+                <div key={c.id} onClick={()=>openCustomer(c)} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',background:C.bg,borderRadius:8,cursor:'pointer',border:`1px solid ${C.border}`}}
+                  onMouseEnter={e=>(e.currentTarget.style.borderColor=C.primary)}
+                  onMouseLeave={e=>(e.currentTarget.style.borderColor=C.border)}>
+                  <div style={{width:36,height:36,borderRadius:8,background:`${C.primary}15`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                    <i className="fas fa-calendar-check" style={{fontSize:14,color:C.primary}}/>
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:C.text}}>{c.name}</div>
+                    <div style={{fontSize:11,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address} · {getServices(c).map((s:string)=>svcLabel(s)).join(', ')}</div>
+                  </div>
+                  <div style={{flexShrink:0,textAlign:'right'}}>
+                    <div style={{fontSize:11,color:C.textSec}}>{new Date(c.booked_date).toLocaleDateString('sv-SE',{weekday:'short',day:'numeric',month:'short'})}</div>
+                    {(parseFloat(c.price_excl_vat)||0)>0&&<div style={{fontSize:12,fontWeight:700,color:'#10b981'}}>{fmtCur(parseFloat(c.price_excl_vat))}</div>}
+                  </div>
+                </div>
               ))}
             </div>
-            {/* Calendar grid */}
-            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
-              {calDays.map((cell,i)=>{
-                if(!cell)return <div key={i} style={{minHeight:isMobile?60:100,background:C.bg,borderRadius:6,opacity:0.3}}/>
-                const isToday=cell.date===todayStr
-                const dayJobs=calCustomers.filter(c=>c.booked_date===cell.date)
-                return(
-                  <div key={cell.date} style={{minHeight:isMobile?60:100,background:isToday?`${C.primary}15`:C.bg,borderRadius:6,padding:'4px',border:isToday?`2px solid ${C.primary}`:`1px solid ${C.border}`,overflow:'hidden'}}>
-                    <div style={{fontSize:isMobile?11:13,fontWeight:isToday?800:400,color:isToday?C.primary:C.textSec,marginBottom:3,textAlign:'right',paddingRight:2}}>{cell.day}</div>
-                    <div style={{display:'flex',flexDirection:'column',gap:2}}>
-                      {dayJobs.map(c=>{
-                        const kvmMap=getKvm(c)
-                        const totalKvm=Object.values(kvmMap).reduce((s:number,v:any)=>s+(parseFloat(String(v))||0),0)
-                        return(
-                          <div key={c.id} onClick={()=>openCustomer(c)} title={c.name} style={{background:C.primary,color:'white',borderRadius:4,padding:isMobile?'2px 4px':'3px 6px',fontSize:isMobile?9:11,fontWeight:600,cursor:'pointer',overflow:'hidden',lineHeight:1.3}}>
-                            <div style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
-                            {!isMobile&&<>
-                              <div style={{opacity:0.85,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:10}}>{c.address}</div>
-                              <div style={{opacity:0.85,fontSize:10}}>{getServices(c).map((s:string)=>svcLabel(s)).join(', ')}{totalKvm>0&&` · ${totalKvm}kvm`}</div>
-                            </>}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            {/* Legend */}
-            <div style={{marginTop:16,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap' as const}}>
-              <div style={{display:'flex',alignItems:'center',gap:6}}>
-                <div style={{width:14,height:14,borderRadius:3,background:C.primary}}/>
-                <span style={{fontSize:12,color:C.textSec}}>Bokat jobb</span>
-              </div>
-              <div style={{display:'flex',alignItems:'center',gap:6}}>
-                <div style={{width:14,height:14,borderRadius:3,border:`2px solid ${C.primary}`,background:`${C.primary}15`}}/>
-                <span style={{fontSize:12,color:C.textSec}}>Idag</span>
-              </div>
-              <span style={{marginLeft:'auto',fontSize:12,color:C.textSec}}>{calCustomers.length} bokade jobb visas</span>
-            </div>
           </div>
-        </>}
+        )
+      })()}
+    </div>
+  )
+})()}
 
         {/* ── NY KUND ── */}
         {page==='new-customer'&&<div style={{maxWidth:isMobile?'100%':600}}>
@@ -1405,6 +1483,57 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               {customerPrice>0&&(
                 <div style={{marginBottom:24,background:C.bg,borderRadius:12,padding:isMobile?14:20,border:`1px solid ${C.border}`}}>
                   <h3 style={{fontSize:16,fontWeight:600,marginBottom:16,color:C.text,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-file-invoice-dollar" style={{color:'#10b981'}}/> Offert &amp; Ekonomi</h3>
+                  {/* PDF-uppladdning */}
+                  <div style={{marginBottom:16,padding:'12px 16px',background:C.surface,borderRadius:10,border:`1px dashed ${C.border}`}}>
+                    <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:8,display:'flex',alignItems:'center',gap:6}}>
+                      <i className="fas fa-file-pdf" style={{color:'#ef4444'}}/> Ladda upp offert-PDF
+                    </div>
+                    <div style={{fontSize:12,color:C.textSec,marginBottom:10}}>AI läser av PDF:en och fyller i material och priser automatiskt</div>
+                    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' as const}}>
+                      <label style={{display:'inline-flex',alignItems:'center',gap:6,padding:'7px 14px',background:C.primary,color:'white',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                        <i className="fas fa-upload"/> Välj PDF
+                        <input type="file" accept=".pdf,application/pdf" style={{display:'none'}} onChange={async e=>{
+                          const file=e.target.files?.[0]
+                          if(!file)return
+                          // Konvertera till base64
+                          const reader=new FileReader()
+                          reader.onload=async ev=>{
+                            const base64=ev.target?.result as string
+                            const base64Data=base64.split(',')[1]
+                            // Skicka till AI för analys
+                            try{
+                              const res=await fetch('/api/ai',{
+                                method:'POST',
+                                headers:{'Content-Type':'application/json'},
+                                body:JSON.stringify({
+                                  message:`Analysera denna offert-PDF för ett ytrengöringsföretag. Extrahera ALLA materialposter med namn, antal och styckpris. Returnera svaret som JSON i detta exakta format:
+{"material_items":[{"name":"Materialnamn","qty":1,"unit_price":100}]}
+Inkludera ENBART material och produkter, INTE arbete/tjänster. Om du hittar totalsummor, exkludera moms.`,
+                                  messages:[{role:'user',content:`Analysera offert-PDF och extrahera materialposter som JSON. PDF (base64): ${base64Data.substring(0,500)}...`}],
+                                  sessionId:'pdf-extract',
+                                  pdfBase64:base64Data,
+                                })
+                              })
+                              const data=await res.json()
+                              // Försök parsa JSON från svaret
+                              const match=data.reply?.match(/\{[\s\S]*"material_items"[\s\S]*\}/)
+                              if(match){
+                                try{
+                                  const parsed=JSON.parse(match[0])
+                                  if(parsed.material_items?.length>0){
+                                    setMaterialItems(parsed.material_items.map((i:any)=>({name:String(i.name||''),qty:String(i.qty||1),unit_price:String(i.unit_price||0)})))
+                                  }
+                                }catch{}
+                              }
+                            }catch(err){console.error('PDF extract error:',err)}
+                          }
+                          reader.readAsDataURL(file)
+                          e.target.value=''
+                        }}/>
+                      </label>
+                      <span style={{fontSize:11,color:C.textSec}}>PDF läses av med AI och fyller i listan nedan automatiskt</span>
+                    </div>
+                  </div>
                   <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:12,marginBottom:20}}>
                     {([
                       ['Offererat pris',     fmtCur(customerPrice),                '#3b82f6'],
