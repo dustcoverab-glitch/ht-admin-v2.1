@@ -1,0 +1,1601 @@
+'use client'
+import { useState, useEffect } from 'react'
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, orderBy, query, where } from 'firebase/firestore'
+import { db } from '@/lib/firebase'
+import AIPanel from '@/components/ai/AIPanel'
+
+/* ─── SERVICE STEPS ─────────────────────────────────────────── */
+const SERVICE_STEPS: Record<string,{id:number,label:string}[]> = {
+  stentvatt: [
+    {id:0,label:'Ej påbörjad'},
+    {id:1,label:'Inbokat hembesök'},
+    {id:2,label:'Hembesök'},
+    {id:3,label:'Offert'},
+    {id:4,label:'Bokat'},
+    {id:5,label:'Stentvätt'},
+    {id:6,label:'Impregnering'},
+    {id:7,label:'Fogsand'},
+    {id:8,label:'Fakturerad'},
+  ],
+  stentvatt_no_fogsand: [
+    {id:0,label:'Ej påbörjad'},
+    {id:1,label:'Inbokat hembesök'},
+    {id:2,label:'Hembesök'},
+    {id:3,label:'Offert'},
+    {id:4,label:'Bokat'},
+    {id:5,label:'Stentvätt'},
+    {id:6,label:'Impregnering'},
+    {id:7,label:'Fakturerad'},
+  ],
+  betongtvatt: [
+    {id:0,label:'Ej påbörjad'},
+    {id:1,label:'Inbokat hembesök'},
+    {id:2,label:'Hembesök'},
+    {id:3,label:'Offert'},
+    {id:4,label:'Bokat'},
+    {id:5,label:'Betongtvätt'},
+    {id:6,label:'Fakturerad'},
+  ],
+  altantvatt: [
+    {id:0,label:'Ej påbörjad'},
+    {id:1,label:'Inbokat hembesök'},
+    {id:2,label:'Hembesök'},
+    {id:3,label:'Offert'},
+    {id:4,label:'Bokat'},
+    {id:5,label:'Altantvätt'},
+    {id:6,label:'Efterbehandling'},
+    {id:7,label:'Fakturerad'},
+  ],
+  asfaltstvatt: [
+    {id:0,label:'Ej påbörjad'},
+    {id:1,label:'Inbokat hembesök'},
+    {id:2,label:'Hembesök'},
+    {id:3,label:'Offert'},
+    {id:4,label:'Bokat'},
+    {id:5,label:'Asfaltstvätt'},
+    {id:6,label:'Fakturerad'},
+  ],
+}
+
+function getSteps(s:string,fog=false){
+  if(s==='stentvatt')return fog?SERVICE_STEPS.stentvatt:SERVICE_STEPS.stentvatt_no_fogsand
+  if(s==='betongtvatt')return SERVICE_STEPS.betongtvatt
+  return SERVICE_STEPS[s]||[]
+}
+function getServices(c:any):string[]{return Array.isArray(c.services)?c.services:JSON.parse(c.services||'[]')}
+function getProgress(c:any):Record<string,number>{try{return typeof c.service_progress==='object'?c.service_progress:JSON.parse(c.service_progress||'{}')}catch{return{}}}
+function getKvm(c:any):Record<string,string>{try{return typeof c.service_kvm==='object'?c.service_kvm:JSON.parse(c.service_kvm||'{}')}catch{return{}}}
+function svcLabel(s:string){return({stentvatt:'Stentvätt',stentvatt_no_fogsand:'Stentvätt (utan fogsand)',betongtvatt:'Betongtvätt',altantvatt:'Altantvätt',asfaltstvatt:'Asfaltstvätt'} as any)[s]||s}
+function statusLabel(s:string){return({new:'Ny',in_progress:'Pågående',completed:'Slutförd',rejected:'Ej Accepterad'} as any)[s]||s}
+function fmtDate(d:string){if(!d)return '';return new Date(d).toLocaleDateString('sv-SE',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
+function fmtCur(n:number){return Math.round(n).toLocaleString('sv-SE')+' kr'}
+function fmtMins(m:number){const h=Math.floor(m/60),min=m%60;return `${h}h ${min}m`}
+function calcProgress(c:any){const p=getProgress(c),svcs=getServices(c);if(!svcs.length)return 0;let t=0;for(const s of svcs){const st=getSteps(s,c.include_fogsand);t+=(p[s]||0)/(st.length-1)*100}return t/svcs.length}
+function getStatus(c:any){
+  if(c.rejected)return 'rejected'
+  const p=getProgress(c),svcs=getServices(c)
+  if(!svcs.length||!Object.keys(p).length)return 'new'
+  let allDone=true,started=false
+  for(const s of svcs){const st=getSteps(s,c.include_fogsand),cur=p[s]||0;if(cur>0)started=true;if(cur<st.length-1)allDone=false}
+  if(allDone&&started)return 'completed'
+  if(started)return 'in_progress'
+  return 'new'
+}
+function buildMoments(c:any):string[]{
+  const moments=['Admin','Körtid']
+  getServices(c).forEach(s=>{
+    const steps=getSteps(s,c.include_fogsand)
+    steps.forEach(step=>{if(step.id>0)moments.push(`${svcLabel(s)} - ${step.label}`)})
+  })
+  return moments
+}
+
+/* ─── PROCESS FILTER (KUNDER) ───────────────────────────────── */
+const PROCESS_FILTERS:{id:string,label:string}[]=[
+  {id:'all',          label:'Alla steg'},
+  {id:'not_started',  label:'Ej påbörjad'},
+  {id:'book_visit',   label:'Inbokat hembesök'},
+  {id:'visit',        label:'Hembesök'},
+  {id:'offer',        label:'Offert'},
+  {id:'booked',       label:'Bokat'},
+  {id:'main_service', label:'Huvudtjänst'},
+  {id:'aftercare',    label:'Efterbehandling'},
+  {id:'invoicing',    label:'Fakturering'},
+]
+
+function stepLabelToProcessStage(stepLabel:string){
+  if(!stepLabel) return 'not_started'
+  switch(stepLabel){
+    case 'Ej påbörjad':       return 'not_started'
+    case 'Inbokat hembesök':  return 'book_visit'
+    case 'Hembesök':          return 'visit'
+    case 'Offert':            return 'offer'
+    case 'Bokat':             return 'booked'
+
+    // Huvudtjänst (där ligger stentvätt, altantvätt, asfaltstvätt, betongtvätt)
+    case 'Stentvätt':
+    case 'Altantvätt':
+    case 'Asfaltstvätt':
+    case 'Betongtvätt':
+      return 'main_service'
+
+    // Efterbehandling (alla efterbehandlingssteg)
+    case 'Impregnering':
+    case 'Fogsand':
+    case 'Efterbehandling':
+      return 'aftercare'
+
+    // Fakturering
+    case 'Fakturerad':
+    case 'Fakturering':
+      return 'invoicing'
+  }
+
+  // Fallback om du lägger till nya labels framöver:
+  if(stepLabel.toLowerCase().includes('tvätt')) return 'main_service'
+  return 'aftercare'
+}
+
+function getCustomerProcessStages(c:any):Set<string>{
+  const p=getProgress(c)
+  const svcs=getServices(c)
+  if(!svcs.length) return new Set(['not_started'])
+  if(!Object.keys(p||{}).length) return new Set(['not_started'])
+
+  const stages=new Set<string>()
+  for(const s of svcs){
+    const steps=getSteps(s,c.include_fogsand)
+    const idx=p[s]||0
+    const label=steps?.[idx]?.label || ''
+    stages.add(stepLabelToProcessStage(label))
+  }
+  return stages.size?stages:new Set(['not_started'])
+}
+
+/* ─── COLOURS ────────────────────────────────────────────────── */
+const LIGHT={bg:'#f8fafc',surface:'#ffffff',border:'#e2e8f0',text:'#1e293b',textSec:'#64748b',primary:'#2563eb',sidebar:'#1e293b',sidebarText:'#cbd5e1',input:'#ffffff',inputBorder:'#e2e8f0'}
+const DARK= {bg:'#0f172a',surface:'#1e293b',border:'#334155',text:'#e2e8f0',textSec:'#94a3b8',primary:'#3b82f6',sidebar:'#0f172a',sidebarText:'#94a3b8',input:'#1e293b',inputBorder:'#334155'}
+const EMPTY_UH={name:'',phone:'',email:'',address:'',amount:'',note:''}
+const TODAY=new Date().toISOString().split('T')[0]
+
+/* ─── ARBETEN 2025 ───────────────────────────────────────────── */
+const SERVICES_2025=[
+  {key:'stentvatt',    label:'Stentvätt'},
+  {key:'altantvatt',   label:'Altantvätt'},
+  {key:'asfaltstvatt', label:'Asfaltstvätt'},
+  {key:'fasadtvatt',   label:'Fasadtvätt'},
+  {key:'taktvatt',     label:'Taktvätt'},
+  {key:'ovrigt',       label:'Övrigt'},
+]
+function getJob2025Items(j:any):{service:string,kvm:number,tid:number,pris:number}[]{
+  if(Array.isArray(j.service_items)&&j.service_items.length>0)return j.service_items
+  return [{service:j.service||'ovrigt',kvm:j.kvm||0,tid:j.tid||0,pris:j.pris||0}]
+}
+function normaliseSvcKey(s:string):string{
+  const map:Record<string,string>={'stentvätt':'stentvatt','stentvatt':'stentvatt','betongtvatt':'betongtvatt','betongtvätt':'betongtvatt','altantvatt':'altantvatt','altantvätt':'altantvatt','asfaltstvatt':'asfaltstvatt','asfaltstvätt':'asfaltstvatt','stentvatt_no_fogsand':'stentvatt_no_fogsand'}
+  return map[s.toLowerCase().trim()]||s
+}
+type SvcData={kvm:string,hours:string,mins:string,pris:string}
+type JobForm={name:string,selectedServices:string[],serviceData:Record<string,SvcData>}
+const EMPTY_JOB_FORM:JobForm={name:'',selectedServices:[],serviceData:{}}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════════════ */
+export default function AdminShell({onLogout}:{onLogout:()=>void}){
+  const [dark,setDark]=useState(false)
+  const [page,setPage]=useState('dashboard')
+  const [customers,setCustomers]=useState<any[]>([])
+  const [logs,setLogs]=useState<any[]>([])
+  const [allLogs,setAllLogs]=useState<any[]>([])
+  const [filter,setFilter]=useState('active')
+  const [processFilter,setProcessFilter]=useState('all')
+  const [search,setSearch]=useState('')
+  const [current,setCurrent]=useState<any>(null)
+  const [showModal,setShowModal]=useState(false)
+  const [showAI,setShowAI]=useState(false)
+  const [editMode,setEditMode]=useState(false)
+  const [comment,setComment]=useState('')
+  const [newForm,setNewForm]=useState({name:'',phone:'',email:'',address:'',services:[] as string[],kvm:{} as Record<string,string>,fogsand:false,note:'',price:''})
+  const [timeForm,setTimeForm]=useState({moment:'',hours:'',mins:'',date:TODAY})
+  const [uhContracts,setUhContracts]=useState<any[]>([])
+  const [uhModal,setUhModal]=useState(false)
+  const [uhDetailModal,setUhDetailModal]=useState(false)
+  const [uhImportModal,setUhImportModal]=useState(false)
+  const [uhCurrentId,setUhCurrentId]=useState<string|null>(null)
+  const [uhIsEdit,setUhIsEdit]=useState(false)
+  const [uhForm,setUhForm]=useState(EMPTY_UH)
+  const [uhImportQ,setUhImportQ]=useState('')
+  const [jobs2025,setJobs2025]=useState<any[]>([])
+  const [jobs2025Form,setJobs2025Form]=useState<JobForm>(EMPTY_JOB_FORM)
+  const [jobs2025EditId,setJobs2025EditId]=useState<string|null>(null)
+  const [jobs2025Saving,setJobs2025Saving]=useState(false)
+  const [jobs2025Msg,setJobs2025Msg]=useState('')
+  const [isMobile,setIsMobile]=useState(false)
+  const [sidebarOpen,setSidebarOpen]=useState(false)
+  const [editLogId,setEditLogId]=useState<string|null>(null)
+  const [editLogForm,setEditLogForm]=useState<any>({})
+
+  const C=dark?DARK:LIGHT
+  const inp:React.CSSProperties={background:C.input,border:`2px solid ${C.inputBorder}`,borderRadius:8,padding:'8px 12px',color:C.text,fontFamily:'inherit',fontSize:14,width:'100%',boxSizing:'border-box',outline:'none'}
+  const btn=(bg:string,color='white'):React.CSSProperties=>({display:'inline-flex',alignItems:'center',gap:6,padding:'8px 16px',background:bg,color,border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',minHeight:40})
+
+  useEffect(()=>{loadCustomers();loadAllLogs();loadContracts();loadJobs2025()},[])
+  useEffect(()=>{
+    const check=()=>{setIsMobile(window.innerWidth<768);if(window.innerWidth>=768)setSidebarOpen(false)}
+    check();window.addEventListener('resize',check);return()=>window.removeEventListener('resize',check)
+  },[])
+
+  async function loadCustomers(){const snap=await getDocs(query(collection(db,'customers'),orderBy('created_at','desc')));setCustomers(snap.docs.map(d=>({id:d.id,...d.data()})))}
+  async function loadAllLogs(){const snap=await getDocs(query(collection(db,'activity_logs'),where('log_type','==','time_log')));setAllLogs(snap.docs.map(d=>({id:d.id,...d.data()})))}
+  async function loadLogs(cid:string){const snap=await getDocs(query(collection(db,'activity_logs'),where('customer_id','==',cid)));const l=snap.docs.map(d=>({id:d.id,...d.data()})) as any[];l.sort((a,b)=>new Date(b.timestamp).getTime()-new Date(a.timestamp).getTime());setLogs(l);return l}
+  async function loadContracts(){try{const snap=await getDocs(query(collection(db,'maintenance_contracts'),orderBy('created_at','desc')));setUhContracts(snap.docs.map(d=>({id:d.id,...d.data()})))}catch{setUhContracts([])}}
+  async function loadJobs2025(){try{const snap=await getDocs(query(collection(db,'customers_2025'),orderBy('created_at','desc')));setJobs2025(snap.docs.map(d=>({id:d.id,...d.data()})))}catch{setJobs2025([])}}
+
+  function openEditJob2025(j:any){
+    const items=getJob2025Items(j)
+    const selectedServices=items.map((i:any)=>i.service)
+    const serviceData:Record<string,SvcData>={}
+    items.forEach((i:any)=>{serviceData[i.service]={kvm:String(i.kvm||''),hours:String(Math.floor((i.tid||0)/60)),mins:String((i.tid||0)%60),pris:String(i.pris||'')}})
+    setJobs2025Form({name:j.name,selectedServices,serviceData})
+    setJobs2025EditId(j.id)
+    document.getElementById('job2025-form')?.scrollIntoView({behavior:'smooth',block:'start'})
+  }
+  async function deleteJob2025(id:string){if(!confirm('Ta bort detta jobb?'))return;await deleteDoc(doc(db,'customers_2025',id));await loadJobs2025()}
+  async function saveJob2025(){
+    const{name,selectedServices,serviceData}=jobs2025Form
+    if(!name.trim())return setJobs2025Msg('Ange ett namn.')
+    if(!selectedServices.length)return setJobs2025Msg('Välj minst en tjänst.')
+    for(const svc of selectedServices){
+      const d=serviceData[svc]||{kvm:'',hours:'',mins:'',pris:''}
+      const kvmN=parseFloat(d.kvm||'0')
+      if(isNaN(kvmN)||kvmN<=0)return setJobs2025Msg(`Ange giltigt kvm för ${SERVICES_2025.find(s=>s.key===svc)?.label||svc}.`)
+      const tid=(parseInt(d.hours||'0')||0)*60+(parseInt(d.mins||'0')||0)
+      if(tid<=0)return setJobs2025Msg(`Ange minst 1 minut för ${SERVICES_2025.find(s=>s.key===svc)?.label||svc}.`)
+      const prisN=parseFloat(d.pris||'0')
+      if(isNaN(prisN)||prisN<0)return setJobs2025Msg(`Ange giltigt pris för ${SERVICES_2025.find(s=>s.key===svc)?.label||svc}.`)
+    }
+    const service_items=selectedServices.map(svc=>{
+      const d=serviceData[svc]||{kvm:'0',hours:'0',mins:'0',pris:'0'}
+      return{service:svc,kvm:parseFloat(d.kvm)||0,tid:(parseInt(d.hours)||0)*60+(parseInt(d.mins)||0),pris:parseFloat(d.pris)||0}
+    })
+    setJobs2025Saving(true);setJobs2025Msg('')
+    try{
+      if(jobs2025EditId){await updateDoc(doc(db,'customers_2025',jobs2025EditId),{name:name.trim(),service_items})}
+      else{await addDoc(collection(db,'customers_2025'),{name:name.trim(),service_items,created_at:new Date().toISOString()})}
+      setJobs2025Form(EMPTY_JOB_FORM);setJobs2025EditId(null);setJobs2025Msg('✓ Sparat!')
+      setTimeout(()=>setJobs2025Msg(''),3000);await loadJobs2025()
+    }catch(e){setJobs2025Msg('Fel vid sparning.');console.error(e)}
+    finally{setJobs2025Saving(false)}
+  }
+  function toggleSvc2025(key:string){
+    const sel=jobs2025Form.selectedServices
+    if(sel.includes(key)){
+      const next=sel.filter(s=>s!==key)
+      const sd={...jobs2025Form.serviceData};delete sd[key]
+      setJobs2025Form({...jobs2025Form,selectedServices:next,serviceData:sd})
+    }else{
+      setJobs2025Form({...jobs2025Form,selectedServices:[...sel,key],serviceData:{...jobs2025Form.serviceData,[key]:{kvm:'',hours:'',mins:'',pris:''}}})
+    }
+  }
+  function setSvcField(svcKey:string,field:keyof SvcData,val:string){
+    setJobs2025Form(prev=>({...prev,serviceData:{...prev.serviceData,[svcKey]:{...(prev.serviceData[svcKey]||{kvm:'',hours:'',mins:'',pris:''}),[field]:val}}}))
+  }
+
+  async function saveContract(){
+    const data={name:uhForm.name.trim(),phone:uhForm.phone.trim(),email:uhForm.email.trim(),address:uhForm.address.trim(),amount:parseFloat(uhForm.amount)||0,note:uhForm.note.trim(),done:false,created_at:new Date().toISOString()}
+    if(uhIsEdit&&uhCurrentId){await updateDoc(doc(db,'maintenance_contracts',uhCurrentId),{name:data.name,phone:data.phone,email:data.email,address:data.address,amount:data.amount,note:data.note})}
+    else{await addDoc(collection(db,'maintenance_contracts'),data)}
+    await loadContracts();setUhModal(false);setUhForm(EMPTY_UH)
+  }
+  async function toggleDone(id:string){const c=uhContracts.find(x=>x.id===id);if(!c)return;await updateDoc(doc(db,'maintenance_contracts',id),{done:!c.done});await loadContracts()}
+  async function deleteContract(id:string){if(!confirm('Ta bort detta avtal?'))return;await deleteDoc(doc(db,'maintenance_contracts',id));await loadContracts();setUhDetailModal(false)}
+  async function openCustomer(c:any){setCurrent(c);setShowModal(true);setEditMode(false);setEditLogId(null);setEditLogForm({});setTimeForm({moment:'',hours:'',mins:'',date:TODAY});await loadLogs(c.id)}
+  async function addComment(){if(!current||!comment.trim())return;await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'comment',content:comment,timestamp:new Date().toISOString()});setComment('');await loadLogs(current.id)}
+  async function updateCust(id:string,data:any){await updateDoc(doc(db,'customers',id),data);await loadCustomers();setCurrent((prev:any)=>({...prev,...data}))}
+  async function deleteCust(){if(!current||!confirm(`Ta bort ${current.name}?`))return;await deleteDoc(doc(db,'customers',current.id));setShowModal(false);setCurrent(null);await loadCustomers()}
+  async function createCustomer(){
+    const svcs=newForm.services
+    if(!newForm.name||!newForm.phone||!newForm.address||!svcs.length)return alert('Fyll i alla obligatoriska fält')
+    const prog:Record<string,number>={};const kv:Record<string,string>={}
+    svcs.forEach(s=>{prog[s]=0;kv[s]=newForm.kvm[s]||'0'})
+    await addDoc(collection(db,'customers'),{name:newForm.name,phone:newForm.phone,email:newForm.email,address:newForm.address,services:svcs,service_kvm:kv,service_progress:prog,skipped_steps:{},include_fogsand:newForm.fogsand,note:newForm.note,price_excl_vat:parseFloat(newForm.price)||0,status:'new',rejected:false,created_at:new Date().toISOString()})
+    setNewForm({name:'',phone:'',email:'',address:'',services:[],kvm:{},fogsand:false,note:'',price:''})
+    await loadCustomers();setPage('customers')
+  }
+  async function logTime(){
+    if(!current||!timeForm.moment)return alert('Välj ett moment')
+    const totalMins=(parseInt(timeForm.hours)||0)*60+(parseInt(timeForm.mins)||0)
+    if(totalMins<=0)return alert('Ange minst 1 minut')
+    await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'time_log',moment:timeForm.moment,time_spent:totalMins,date:timeForm.date,content:`${timeForm.moment}: ${fmtMins(totalMins)}`,timestamp:new Date().toISOString()})
+    setTimeForm({moment:'',hours:'',mins:'',date:TODAY});await loadLogs(current.id);await loadAllLogs()
+  }
+  async function handleAIAction(actionOrEvent?:any){
+    if(actionOrEvent&&typeof actionOrEvent==='object'&&actionOrEvent.type==='createCustomer'){
+      const d=actionOrEvent.data??actionOrEvent
+      const rawServices=Array.isArray(d.services)?d.services:typeof d.services==='string'?[d.services]:['stentvatt']
+      const services=rawServices.map(normaliseSvcKey)
+      const include_fogsand:boolean=d.include_fogsand??false
+      const prog:Record<string,number>={};const kv:Record<string,string>={}
+      services.forEach((s:string)=>{prog[s]=0;kv[s]=String(d.service_kvm?.[s]??d.kvm??0)})
+      try{await addDoc(collection(db,'customers'),{name:d.name??'',phone:d.phone??'',email:d.email??'',address:d.address??'',services,service_kvm:kv,service_progress:prog,skipped_steps:{},include_fogsand,note:d.note??'',price_excl_vat:parseFloat(d.price)||0,status:'new',rejected:false,created_at:new Date().toISOString()})}
+      catch(e){console.error('AI createCustomer error:',e)}
+    }
+    await loadCustomers()
+  }
+  async function moveStep(service:string,idx:number){
+    if(!current)return
+    const p={...getProgress(current)};p[service]=idx
+    await updateCust(current.id,{service_progress:p})
+    await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'status_change',content:`${svcLabel(service)}: ${getSteps(service,current.include_fogsand)[idx]?.label}`,timestamp:new Date().toISOString()})
+    await loadLogs(current.id)
+  }
+  async function acceptOffer(service:string){
+    if(!current||!confirm('Markera offert som accepterad?'))return
+    const p={...getProgress(current)}
+    const steps=getSteps(service,current.include_fogsand)
+    const offIdx=steps.findIndex(s=>s.label==='Offert')
+    p[service]=offIdx+1
+    await updateCust(current.id,{service_progress:p,rejected:false})
+    await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'status_change',content:`${svcLabel(service)}: Offert accepterad → Bokat`,timestamp:new Date().toISOString()})
+    await loadLogs(current.id)
+  }
+  async function rejectOffer(){
+    if(!current||!confirm('Markera offert som nekad?'))return
+    await updateCust(current.id,{rejected:true})
+    await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'status_change',content:'Offert nekad',timestamp:new Date().toISOString()})
+    await loadLogs(current.id)
+  }
+  async function deleteLog(logId:string){
+    if(!confirm('Ta bort denna loggpost?'))return
+    await deleteDoc(doc(db,'activity_logs',logId))
+    if(current)await loadLogs(current.id)
+    await loadAllLogs()
+  }
+  function startEditLog(log:any){
+    setEditLogId(log.id)
+    if(log.log_type==='time_log'){setEditLogForm({moment:log.moment||'',hours:String(Math.floor((log.time_spent||0)/60)),mins:String((log.time_spent||0)%60),date:log.date||TODAY})}
+    else{setEditLogForm({content:log.content||''})}
+  }
+  async function saveEditLog(){
+    if(!editLogId||!current)return
+    const log=logs.find(l=>l.id===editLogId);if(!log)return
+    if(log.log_type==='time_log'){
+      const totalMins=(parseInt(editLogForm.hours)||0)*60+(parseInt(editLogForm.mins)||0)
+      if(totalMins<=0)return alert('Ange minst 1 minut')
+      await updateDoc(doc(db,'activity_logs',editLogId),{moment:editLogForm.moment,time_spent:totalMins,date:editLogForm.date,content:`${editLogForm.moment}: ${fmtMins(totalMins)}`})
+      await loadAllLogs()
+    }else if(log.log_type==='comment'){
+      if(!editLogForm.content.trim())return
+      await updateDoc(doc(db,'activity_logs',editLogId),{content:editLogForm.content.trim()})
+    }
+    setEditLogId(null);setEditLogForm({});await loadLogs(current.id)
+  }
+
+  const filtered=customers.filter(c=>{
+    const s=getStatus(c)
+    if(filter==='active'&&s!=='new'&&s!=='in_progress')return false
+    if(filter==='rejected'&&s!=='rejected')return false
+    if(filter!=='all'&&filter!=='active'&&filter!=='rejected'&&s!==filter)return false
+
+    if(processFilter!=='all'){
+      const stages=getCustomerProcessStages(c)
+      if(!stages.has(processFilter))return false
+    }
+
+    if(search){const q=search.toLowerCase();if(!c.name?.toLowerCase().includes(q)&&!c.phone?.includes(q)&&!c.address?.toLowerCase().includes(q))return false}
+    return true
+  })
+
+  const stats={
+    total:customers.length,
+    new:customers.filter(c=>getStatus(c)==='new').length,
+    progress:customers.filter(c=>getStatus(c)==='in_progress').length,
+    completed:customers.filter(c=>getStatus(c)==='completed').length,
+    rejected:customers.filter(c=>getStatus(c)==='rejected').length,
+    revenue:customers.filter(c=>!c.rejected).reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0),
+  }
+
+  const allItems2025=jobs2025.flatMap(j=>getJob2025Items(j))
+  function svc3Group(key:string):'stentvatt'|'altantvatt'|'asfaltstvatt'|'ovrigt'{
+    if(key==='stentvatt')return 'stentvatt'
+    if(key==='altantvatt')return 'altantvatt'
+    if(key==='asfaltstvatt')return 'asfaltstvatt'
+    return 'ovrigt'
+  }
+  const stats2025={
+    totalJobb:jobs2025.length,
+    totalKvm:allItems2025.reduce((s,i)=>s+(i.kvm||0),0),
+    totalOms:Math.round(allItems2025.reduce((s,i)=>s+(i.pris||0),0)),
+    totalTid:allItems2025.reduce((s,i)=>s+(i.tid||0),0),
+    kvmPerSvc:allItems2025.reduce((acc,i)=>{acc[i.service]=(acc[i.service]||0)+(i.kvm||0);return acc},{} as Record<string,number>),
+  }
+  const svcOms:Record<string,number>={stentvatt:0,altantvatt:0,asfaltstvatt:0,ovrigt:0}
+  const svcKvm:Record<string,number>={stentvatt:0,altantvatt:0,asfaltstvatt:0,ovrigt:0}
+  const svcTid:Record<string,number>={stentvatt:0,altantvatt:0,asfaltstvatt:0,ovrigt:0}
+  allItems2025.forEach(i=>{const g=svc3Group(i.service);svcOms[g]+=i.pris||0;svcKvm[g]+=i.kvm||0;svcTid[g]+=i.tid||0})
+  function svcRate(g:string){return svcTid[g]>0?Math.round(svcOms[g]/(svcTid[g]/60)):0}
+  function svcPriceKvm(g:string){return svcKvm[g]>0?Math.round(svcOms[g]/svcKvm[g]):0}
+  const omsPerTimme=stats2025.totalTid>0?Math.round(stats2025.totalOms/(stats2025.totalTid/60)):0
+  const prisPerKvm=stats2025.totalKvm>0?Math.round(stats2025.totalOms/stats2025.totalKvm):0
+
+  const uhCurrent=uhContracts.find(x=>x.id===uhCurrentId)
+  function openUhDetail(id:string){setUhCurrentId(id);setUhDetailModal(true)}
+  function openUhAdd(){setUhIsEdit(false);setUhForm(EMPTY_UH);setUhModal(true)}
+  function openUhEdit(c:any){setUhIsEdit(true);setUhCurrentId(c.id);setUhForm({name:c.name,phone:c.phone,email:c.email||'',address:c.address,amount:String(c.amount||''),note:c.note||''});setUhModal(true)}
+  function importCustomer(c:any){setUhImportModal(false);setUhIsEdit(false);setUhCurrentId(null);setUhForm({name:c.name,phone:c.phone,email:c.email||'',address:c.address,amount:'',note:''});setUhModal(true)}
+  const uhFiltered=uhImportQ?customers.filter(c=>c.name.toLowerCase().includes(uhImportQ.toLowerCase())||c.address.toLowerCase().includes(uhImportQ.toLowerCase())):customers.slice(0,20)
+
+  const custTimeLogs=logs.filter(l=>l.log_type==='time_log')
+  const totalTid=custTimeLogs.reduce((s,l)=>s+(l.time_spent||0),0)
+  const momentTid=custTimeLogs.filter(l=>l.moment!=='Admin'&&l.moment!=='Körtid').reduce((s,l)=>s+(l.time_spent||0),0)
+  const adminTid=custTimeLogs.filter(l=>l.moment==='Admin').reduce((s,l)=>s+(l.time_spent||0),0)
+  const korTid=custTimeLogs.filter(l=>l.moment==='Körtid').reduce((s,l)=>s+(l.time_spent||0),0)
+
+  const svc3Colors:{[k:string]:string}={stentvatt:'#3b82f6',altantvatt:'#10b981',asfaltstvatt:'#f59e0b',ovrigt:'#8b5cf6'}
+  const modalOverlay:React.CSSProperties={position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:isMobile?'flex-end':'center',justifyContent:'center',zIndex:1000,padding:isMobile?0:20}
+  const modalBox=(maxW=900):React.CSSProperties=>({background:C.surface,borderRadius:isMobile?'16px 16px 0 0':12,maxWidth:isMobile?'100%':maxW,width:'100%',maxHeight:isMobile?'95vh':'90vh',overflowY:'auto',boxShadow:'0 20px 40px rgba(0,0,0,0.2)'})
+
+  return(
+    <div style={{display:'flex',height:'100vh',overflow:'hidden',fontFamily:'Inter,system-ui,sans-serif',background:C.bg,color:C.text,width:'100%',position:'relative'}}>
+
+      {isMobile&&(
+        <button onClick={()=>setSidebarOpen(!sidebarOpen)} style={{position:'fixed',top:12,left:12,zIndex:1100,width:42,height:42,background:C.sidebar,border:'none',borderRadius:10,color:'white',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 8px rgba(0,0,0,0.35)'}}>
+          <i className={sidebarOpen?'fas fa-times':'fas fa-bars'}/>
+        </button>
+      )}
+      {isMobile&&sidebarOpen&&<div onClick={()=>setSidebarOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:999}}/>}
+
+      {/* SIDEBAR */}
+      <aside style={{width:260,flexShrink:0,background:C.sidebar,color:C.sidebarText,display:'flex',flexDirection:'column',height:'100vh',overflowY:'auto',...(isMobile?{position:'fixed' as const,top:0,left:0,zIndex:1000,transform:sidebarOpen?'translateX(0)':'translateX(-100%)',transition:'transform 0.3s ease'}:{})}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'32px 24px 28px'}}>
+          <i className="fas fa-tasks" style={{fontSize:22,color:C.primary}}/>
+          <span style={{fontSize:20,fontWeight:700,color:'white'}}>Admin</span>
+        </div>
+        <nav style={{flex:1}}>
+          {([
+            ['dashboard',   'fas fa-chart-line',    'Dashboard'],
+            ['customers',   'fas fa-users',          'Kunder'],
+            ['new-customer','fas fa-user-plus',      'Ny kund'],
+            ['underhall',   'fas fa-sync-alt',       'Årligt underhåll'],
+            ['statistik',   'fas fa-chart-bar',      'Statistik'],
+            ['arbeten2025', 'fas fa-clipboard-list', 'Arbeten 2025'],
+          ] as [string,string,string][]).map(([p,icon,label])=>(
+            <div key={p} onClick={()=>{setPage(p);if(isMobile)setSidebarOpen(false)}} style={{display:'flex',alignItems:'center',gap:12,padding:'16px 24px',cursor:'pointer',borderLeft:`3px solid ${page===p?C.primary:'transparent'}`,background:page===p?'rgba(37,99,235,0.1)':'transparent',color:page===p?'white':C.sidebarText,transition:'all 0.2s',fontSize:14,minHeight:52}}>
+              <i className={icon} style={{width:18,textAlign:'center'}}/><span>{label}</span>
+            </div>
+          ))}
+        </nav>
+        <div style={{padding:'16px',borderTop:'1px solid rgba(255,255,255,0.08)',display:'flex',flexDirection:'column',gap:8}}>
+          <button onClick={()=>setShowAI(!showAI)} style={{...btn(showAI?C.primary:'rgba(255,255,255,0.1)','white'),justifyContent:'center'}}><i className="fas fa-robot"/> AI-assistent</button>
+          <button onClick={()=>setDark(!dark)} style={{...btn('rgba(255,255,255,0.05)','white'),justifyContent:'center'}}><i className={dark?'fas fa-sun':'fas fa-moon'}/>{dark?' Ljust tema':' Mörkt tema'}</button>
+          <button onClick={onLogout} style={{...btn('rgba(255,255,255,0.05)','white'),justifyContent:'center'}}><i className="fas fa-sign-out-alt"/> Logga ut</button>
+        </div>
+      </aside>
+
+      {/* MAIN */}
+      <main style={{flex:1,padding:isMobile?'16px':'32px',paddingTop:isMobile?'66px':'32px',height:'100vh',overflowY:'auto',minWidth:0}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isMobile?16:28,gap:8,flexWrap:'wrap' as const}}>
+          <h1 style={{fontSize:isMobile?20:30,fontWeight:700,color:C.text,margin:0}}>
+            {({'dashboard':'Dashboard','customers':'Kunder','new-customer':'Ny kund','underhall':'Årligt underhåll','statistik':'Statistik','arbeten2025':'Arbeten 2025'} as any)[page]}
+          </h1>
+          <button onClick={()=>setPage('new-customer')} style={btn(C.primary)}><i className="fas fa-plus"/>{!isMobile&&' Ny kund'}</button>
+        </div>
+
+        {/* ── DASHBOARD ── */}
+        {page==='dashboard'&&<>
+          <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(6,1fr)',gap:isMobile?10:14,marginBottom:24}}>
+            {([
+              ['fas fa-folder-open','Totalt ärenden', stats.total,                                    '#6366f1'],
+              ['fas fa-star',       'Nya ärenden',    stats.new,                                      '#f59e0b'],
+              ['fas fa-spinner',    'Öppna ärenden',  stats.progress,                                 C.primary],
+              ['fas fa-check-circle','Stängda',       stats.completed,                                '#10b981'],
+              ['fas fa-times-circle','Ej Accepterade',stats.rejected,                                 '#ef4444'],
+              ['fas fa-coins',      'Omsättning',     stats.revenue>0?fmtCur(stats.revenue):'0 kr',  '#10b981'],
+            ] as [string,string,any,string][]).map(([icon,label,val,color])=>(
+              <div key={label} style={{background:C.surface,padding:isMobile?'12px 10px':'20px 16px',borderRadius:14,boxShadow:'0 2px 8px rgba(0,0,0,0.08)',display:'flex',alignItems:'center',gap:isMobile?8:14,minWidth:0}}>
+                <div style={{width:isMobile?36:52,height:isMobile?36:52,borderRadius:12,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                  <i className={icon} style={{fontSize:isMobile?16:22,color}}/>
+                </div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:isMobile?14:label==='Omsättning'?16:28,fontWeight:700,color:C.text,lineHeight:1}}>{val}</div>
+                  <div style={{fontSize:isMobile?10:12,color:C.textSec,marginTop:4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{background:C.surface,padding:isMobile?16:24,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
+            <h2 style={{fontSize:isMobile?15:18,fontWeight:600,marginBottom:16,color:C.text}}>Aktiva ärenden</h2>
+            <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>
+              {customers.filter(c=>{const s=getStatus(c);return s==='new'||s==='in_progress'}).map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)}/>)}
+            </div>
+          </div>
+        </>}
+
+        {/* ── CUSTOMERS ── */}
+        {page==='customers'&&<>
+          <div style={{background:C.surface,padding:isMobile?12:16,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',marginBottom:20,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap' as const,gap:12}}>
+            <div style={{display:'flex',alignItems:'center',gap:10,background:C.bg,padding:'10px 14px',borderRadius:8,flex:1,maxWidth:400}}>
+              <i className="fas fa-search" style={{color:C.textSec}}/>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Sök kund..." style={{border:'none',background:'transparent',outline:'none',flex:1,fontFamily:'inherit',fontSize:14,color:C.text}}/>
+            </div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
+              {([['active','Aktiva'],['new','Nya'],['in_progress','Öppna'],['completed','Stängda'],['rejected','Ej Accepterade']] as [string,string][]).map(([f,l])=>(
+                <button key={f} onClick={()=>setFilter(f)} style={{padding:'8px 14px',border:`2px solid ${filter===f?C.primary:C.border}`,background:filter===f?C.primary:C.surface,color:filter===f?'white':C.text,borderRadius:8,fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:'inherit',minHeight:38}}>{l}</button>
+              ))}
+            </div>
+
+            {/* SEPARAT PROCESSFILTER */}
+            <div style={{width:'100%',height:1,background:C.border,opacity:0.9}}/>
+            <div style={{width:'100%',display:'flex',flexDirection:'column',gap:8}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.textSec,letterSpacing:'0.04em',textTransform:'uppercase' as const}}>
+                Ärendeprocess
+              </div>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
+                {PROCESS_FILTERS.map(({id,label})=>(
+                  <button
+                    key={id}
+                    onClick={()=>setProcessFilter(id)}
+                    style={{
+                      padding:'8px 14px',
+                      border:`2px solid ${processFilter===id?C.primary:C.border}`,
+                      background:processFilter===id?C.primary:C.surface,
+                      color:processFilter===id?'white':C.text,
+                      borderRadius:8,
+                      fontSize:12,
+                      fontWeight:500,
+                      cursor:'pointer',
+                      fontFamily:'inherit',
+                      minHeight:38
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {filtered.length===0
+            ?<div style={{textAlign:'center',padding:'60px',color:C.textSec}}>Inga ärenden att visa</div>
+            :<div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>{filtered.map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)}/>)}</div>
+          }
+        </>}
+
+        {/* ── NY KUND ── */}
+        {page==='new-customer'&&<div style={{maxWidth:isMobile?'100%':600}}>
+          <div style={{background:C.surface,padding:isMobile?20:32,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
+            <h2 style={{fontSize:22,fontWeight:600,marginBottom:24,color:C.text}}>Skapa nytt ärende</h2>
+            {([['Kundnamn *','name','text'],['Telefon *','phone','tel'],['E-post','email','email'],['Adress *','address','text']] as [string,string,string][]).map(([label,field,type])=>(
+              <div key={field} style={{marginBottom:20}}>
+                <label style={{display:'block',fontSize:14,fontWeight:500,marginBottom:6,color:C.text}}>{label}</label>
+                <input type={type} value={(newForm as any)[field]} onChange={e=>setNewForm({...newForm,[field]:e.target.value})} style={inp}/>
+              </div>
+            ))}
+            <div style={{marginBottom:20}}>
+              <label style={{display:'block',fontSize:14,fontWeight:500,marginBottom:8,color:C.text}}>Tjänster *</label>
+              {([['stentvatt','Stentvätt'],['betongtvatt','Betongtvätt'],['altantvatt','Altantvätt'],['asfaltstvatt','Asfaltstvätt']] as [string,string][]).map(([val,lbl])=>(
+                <div key={val} style={{display:'flex',alignItems:'center',gap:12,padding:'8px 0'}}>
+                  <input type="checkbox" checked={newForm.services.includes(val)} onChange={e=>{const s=e.target.checked?[...newForm.services,val]:newForm.services.filter(x=>x!==val);setNewForm({...newForm,services:s})}} style={{width:18,height:18,accentColor:C.primary}}/>
+                  <span style={{fontSize:14,color:C.text}}>{lbl}</span>
+                  {newForm.services.includes(val)&&<input type="number" placeholder="Kvm" value={newForm.kvm[val]||''} onChange={e=>setNewForm({...newForm,kvm:{...newForm.kvm,[val]:e.target.value}})} style={{...inp,width:110}}/>}
+                </div>
+              ))}
+            </div>
+            {newForm.services.includes('stentvatt')&&(
+              <div style={{marginBottom:20}}>
+                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:14,color:C.text,cursor:'pointer'}}>
+                  <input type="checkbox" checked={newForm.fogsand} onChange={e=>setNewForm({...newForm,fogsand:e.target.checked})} style={{accentColor:C.primary}}/>
+                  Inkludera fogsand
+                </label>
+              </div>
+            )}
+            <div style={{marginBottom:20}}>
+              <label style={{display:'block',fontSize:14,fontWeight:500,marginBottom:6,color:C.text}}>Notis</label>
+              <textarea value={newForm.note} onChange={e=>setNewForm({...newForm,note:e.target.value})} rows={3} style={{...inp,resize:'vertical' as const}}/>
+            </div>
+            <div style={{marginBottom:24}}>
+              <label style={{display:'block',fontSize:14,fontWeight:500,marginBottom:6,color:C.text}}>Offererat pris (exkl. moms)</label>
+              <input type="number" value={newForm.price} onChange={e=>setNewForm({...newForm,price:e.target.value})} placeholder="0" style={{...inp,maxWidth:200}}/>
+            </div>
+            <div style={{display:'flex',gap:12,justifyContent:'flex-end',flexWrap:'wrap' as const}}>
+              <button onClick={()=>setPage('dashboard')} style={btn('#64748b')}>Avbryt</button>
+              <button onClick={createCustomer} style={btn(C.primary)}>Skapa ärende</button>
+            </div>
+          </div>
+        </div>}
+
+        {/* ── ÅRSUNDERHÅLL ── */}
+        {page==='underhall'&&<>
+          <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fit,minmax(220px,1fr))',gap:16,marginBottom:24}}>
+            <div style={{background:'#f0fdf4',padding:'20px 24px',borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',display:'flex',alignItems:'center',gap:16}}>
+              <div style={{width:60,height:60,borderRadius:12,background:'rgba(16,185,129,0.15)',display:'flex',alignItems:'center',justifyContent:'center'}}><i className="fas fa-file-signature" style={{fontSize:24,color:'#10b981'}}/></div>
+              <div><div style={{fontSize:32,fontWeight:700,color:'#10b981'}}>{uhContracts.length}</div><div style={{fontSize:14,color:'#64748b'}}>Signerade avtal</div></div>
+            </div>
+            <div style={{background:'#f0f9ff',padding:'20px 24px',borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',display:'flex',alignItems:'center',gap:16}}>
+              <div style={{width:60,height:60,borderRadius:12,background:'rgba(37,99,235,0.1)',display:'flex',alignItems:'center',justifyContent:'center'}}><i className="fas fa-money-bill-wave" style={{fontSize:24,color:'#2563eb'}}/></div>
+              <div><div style={{fontSize:28,fontWeight:700,color:'#2563eb'}}>{fmtCur(uhContracts.reduce((s,c)=>s+(parseFloat(c.amount)||0),0))}</div><div style={{fontSize:14,color:'#64748b'}}>Total årlig omsättning</div></div>
+            </div>
+            <div style={{background:C.surface,padding:'20px 24px',borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',display:'flex',alignItems:'center',gap:16}}>
+              <div style={{width:60,height:60,borderRadius:12,background:'rgba(245,158,11,0.1)',display:'flex',alignItems:'center',justifyContent:'center'}}><i className="fas fa-calculator" style={{fontSize:24,color:'#f59e0b'}}/></div>
+              <div>
+                <div style={{fontSize:28,fontWeight:700,color:C.text}}>{(()=>{const w=uhContracts.filter(c=>(parseFloat(c.amount)||0)>0);return w.length?fmtCur(Math.round(w.reduce((s,c)=>s+(parseFloat(c.amount)||0),0)/w.length)):'—'})()}</div>
+                <div style={{fontSize:14,color:C.textSec}}>Snitt per avtal</div>
+              </div>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:12,marginBottom:24,flexWrap:'wrap' as const}}>
+            <button onClick={openUhAdd} style={btn(C.primary)}><i className="fas fa-plus"/> Lägg till avtal</button>
+            <button onClick={()=>setUhImportModal(true)} style={btn('#64748b')}><i className="fas fa-user-check"/> Importera från befintlig kund</button>
+          </div>
+          {uhContracts.length===0
+            ?<div style={{textAlign:'center',padding:'60px',color:C.textSec}}><i className="fas fa-file-signature" style={{fontSize:48,opacity:0.2,display:'block',marginBottom:16}}/>Inga avtal ännu</div>
+            :<div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>
+              {[...uhContracts].sort((a,b)=>Number(!!a.done)-Number(!!b.done)).map(c=>{
+                const amt=parseFloat(c.amount)||0
+                return(
+                  <div key={c.id} onClick={()=>openUhDetail(c.id)} style={{background:c.done?'#f0fdf4':C.surface,padding:'20px 24px',borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',cursor:'pointer',border:`2px solid ${c.done?'#86efac':'transparent'}`,transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}
+                    onMouseEnter={e=>(e.currentTarget.style.borderColor=c.done?'#86efac':'#10b981')}
+                    onMouseLeave={e=>(e.currentTarget.style.borderColor=c.done?'#86efac':'transparent')}>
+                    <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                      <span style={{fontSize:16,fontWeight:600,color:C.text,opacity:c.done?0.7:1}}>{c.name}</span>
+                      <span style={{fontSize:13,color:C.textSec,display:'flex',alignItems:'center',gap:6}}><i className="fas fa-map-marker-alt" style={{color:C.primary,width:14}}/>{c.address}</span>
+                      {c.phone&&<span style={{fontSize:13,color:C.textSec,display:'flex',alignItems:'center',gap:6}}><i className="fas fa-phone" style={{color:C.primary,width:14}}/>{c.phone}</span>}
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6,flexShrink:0}}>
+                      {c.done&&<span style={{display:'inline-flex',alignItems:'center',gap:6,background:'#dcfce7',color:'#16a34a',fontSize:12,fontWeight:700,padding:'3px 10px',borderRadius:9999,whiteSpace:'nowrap'}}><i className="fas fa-check-circle"/>Genomförd</span>}
+                      <span style={{fontSize:18,fontWeight:700,color:'#10b981',whiteSpace:'nowrap',opacity:c.done?0.7:1}}>{amt>0?fmtCur(amt)+'/år':'—'}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          }
+        </>}
+
+        {/* ── STATISTIK ── */}
+        {page==='statistik'&&<StatPage customers={customers} allLogs={allLogs} C={C} isMobile={isMobile}/>}
+
+        {/* ── ARBETEN 2025 ── */}
+        {page==='arbeten2025'&&<>
+          <div style={{overflowX:isMobile?'auto':'visible',marginBottom:16}}>
+            <div style={{minWidth:isMobile?620:'unset',background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',overflow:'hidden'}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',borderBottom:`1px solid ${C.border}`}}>
+                {([
+                  ['fas fa-briefcase',     'Jobb',        String(stats2025.totalJobb),                         '#6366f1'],
+                  ['fas fa-ruler-combined','Totalt kvm',  stats2025.totalKvm>0?`${stats2025.totalKvm} kvm`:'—','#06b6d4'],
+                  ['fas fa-coins',         'Omsättning',  stats2025.totalOms>0?fmtCur(stats2025.totalOms):'—', '#10b981'],
+                  ['fas fa-clock',         'Total tid',   stats2025.totalTid>0?fmtMins(stats2025.totalTid):'—','#f59e0b'],
+                  ['fas fa-tachometer-alt','Snitt kr/h',  omsPerTimme>0?fmtCur(omsPerTimme)+'/h':'—',          '#f97316'],
+                ] as [string,string,string,string][]).map(([icon,label,val,color],idx,arr)=>(
+                  <div key={label} style={{padding:'14px 16px',borderRight:idx<arr.length-1?`1px solid ${C.border}`:'none',display:'flex',alignItems:'center',gap:10}}>
+                    <div style={{width:34,height:34,borderRadius:9,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><i className={icon} style={{fontSize:14,color}}/></div>
+                    <div><div style={{fontSize:16,fontWeight:700,color:C.text,lineHeight:1.15,whiteSpace:'nowrap'}}>{val}</div><div style={{fontSize:11,color:C.textSec,marginTop:1}}>{label}</div></div>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'auto 1fr 1fr 1fr 1fr',fontSize:12}}>
+                <div style={{padding:'8px 16px',background:C.bg,borderRight:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,fontWeight:700,fontSize:11,color:C.textSec,letterSpacing:'0.04em',textTransform:'uppercase' as const,display:'flex',alignItems:'center'}}>Tjänst</div>
+                {(['Snitt kr/h','Snitt kr/kvm','Omsättning','KVM'] as string[]).map((h,i,a)=>(
+                  <div key={h} style={{padding:'8px 14px',background:C.bg,borderRight:i<a.length-1?`1px solid ${C.border}`:'none',borderBottom:`1px solid ${C.border}`,fontWeight:700,fontSize:11,color:C.textSec,letterSpacing:'0.04em',textTransform:'uppercase' as const}}>{h}</div>
+                ))}
+                {([['stentvatt','Stentvätt',C.surface],['altantvatt','Altantvätt',C.bg],['asfaltstvatt','Asfaltstvätt',C.surface],['ovrigt','Övrigt',C.bg]] as [string,string,string][]).map(g=>[
+                  <div key={`${g[0]}-n`} style={{padding:'9px 16px',borderRight:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:7,background:g[2]}}><div style={{width:8,height:8,borderRadius:'50%',background:svc3Colors[g[0]],flexShrink:0}}/><span style={{fontWeight:600,color:C.text,whiteSpace:'nowrap' as const,fontSize:12}}>{g[1]}</span></div>,
+                  <div key={`${g[0]}-r`} style={{padding:'9px 14px',borderRight:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,background:g[2],fontWeight:700,color:svcRate(g[0])>0?svc3Colors[g[0]]:C.textSec,fontSize:12}}>{svcRate(g[0])>0?fmtCur(svcRate(g[0]))+'/h':'—'}</div>,
+                  <div key={`${g[0]}-k`} style={{padding:'9px 14px',borderRight:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,background:g[2],fontWeight:700,color:svcPriceKvm(g[0])>0?svc3Colors[g[0]]:C.textSec,fontSize:12}}>{svcPriceKvm(g[0])>0?fmtCur(svcPriceKvm(g[0]))+'/kvm':'—'}</div>,
+                  <div key={`${g[0]}-o`} style={{padding:'9px 14px',borderRight:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,background:g[2],color:C.text,fontSize:12}}>{svcOms[g[0]]>0?fmtCur(Math.round(svcOms[g[0]])):'—'}</div>,
+                  <div key={`${g[0]}-kv`} style={{padding:'9px 14px',borderBottom:`1px solid ${C.border}`,background:g[2],color:C.textSec,fontSize:12}}>{svcKvm[g[0]]>0?`${svcKvm[g[0]]} kvm`:'—'}</div>,
+                ])}
+              </div>
+              <div style={{padding:'10px 16px',borderTop:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap' as const}}>
+                <span style={{fontSize:11,fontWeight:700,color:C.textSec,textTransform:'uppercase' as const,letterSpacing:'0.05em',whiteSpace:'nowrap' as const}}><i className="fas fa-ruler-combined" style={{marginRight:4,color:'#8b5cf6'}}/>KVM per tjänst:</span>
+                {Object.entries(stats2025.kvmPerSvc).map(([svc,kvm])=>(
+                  <span key={svc} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 10px',background:C.bg,borderRadius:9999,border:`1px solid ${C.border}`,fontSize:12}}>
+                    <span style={{color:C.textSec}}>{SERVICES_2025.find(s=>s.key===svc)?.label||svc}</span>
+                    <span style={{fontWeight:700,color:C.text}}>{kvm} kvm</span>
+                  </span>
+                ))}
+                {prisPerKvm>0&&(
+                  <span style={{marginLeft:'auto',display:'inline-flex',alignItems:'center',gap:6,padding:'4px 12px',background:`${svc3Colors.ovrigt}12`,borderRadius:9999,border:`1px solid ${svc3Colors.ovrigt}40`,fontSize:12,whiteSpace:'nowrap' as const}}>
+                    <i className="fas fa-ruler-combined" style={{color:svc3Colors.ovrigt,fontSize:11}}/>
+                    <span style={{color:C.textSec}}>Snitt intäkt/kvm totalt:</span>
+                    <span style={{fontWeight:700,color:svc3Colors.ovrigt}}>{fmtCur(prisPerKvm)}/kvm</span>
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div id="job2025-form" style={{background:C.surface,padding:isMobile?16:28,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',marginBottom:28,border:jobs2025EditId?`2px solid ${C.primary}`:'2px solid transparent'}}>
+            <h2 style={{fontSize:17,fontWeight:600,marginBottom:18,color:C.text,display:'flex',alignItems:'center',gap:8}}>
+              <i className={jobs2025EditId?'fas fa-edit':'fas fa-plus-circle'} style={{color:C.primary}}/>{jobs2025EditId?'Redigera jobb':'Lägg till jobb'}
+            </h2>
+            <div style={{marginBottom:18}}>
+              <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:5,color:C.text}}>Kundnamn *</label>
+              <input placeholder="Kundens namn" value={jobs2025Form.name} onChange={e=>setJobs2025Form({...jobs2025Form,name:e.target.value})} style={{...inp,maxWidth:isMobile?'100%':400}}/>
+            </div>
+            <div style={{marginBottom:10}}>
+              <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:10,color:C.text}}>Välj tjänster *</label>
+              <div style={{display:'flex',flexWrap:'wrap' as const,gap:8,marginBottom:16}}>
+                {SERVICES_2025.map(s=>{
+                  const active=jobs2025Form.selectedServices.includes(s.key)
+                  return(
+                    <button key={s.key} type="button" onClick={()=>toggleSvc2025(s.key)} style={{padding:'7px 14px',borderRadius:9999,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',border:`2px solid ${active?C.primary:C.border}`,background:active?C.primary:'transparent',color:active?'white':C.text,transition:'all 0.15s',minHeight:38}}>{s.label}</button>
+                  )
+                })}
+              </div>
+              {jobs2025Form.selectedServices.length>0&&(
+                <div style={{display:'flex',flexDirection:'column',gap:12}}>
+                  {jobs2025Form.selectedServices.map(svcKey=>{
+                    const svcName=SERVICES_2025.find(s=>s.key===svcKey)?.label||svcKey
+                    const d=jobs2025Form.serviceData[svcKey]||{kvm:'',hours:'',mins:'',pris:''}
+                    return(
+                      <div key={svcKey} style={{background:C.bg,borderRadius:10,padding:'14px 16px',border:`1px solid ${C.border}`}}>
+                        <div style={{fontSize:13,fontWeight:600,color:C.primary,marginBottom:10,display:'flex',alignItems:'center',gap:6}}><i className="fas fa-tools" style={{fontSize:11}}/>{svcName}</div>
+                        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'1fr 80px 80px 1fr',gap:10,alignItems:'end'}}>
+                          <div><label style={{display:'block',fontSize:12,fontWeight:500,marginBottom:4,color:C.textSec}}>KVM *</label><input type="number" min={0} step="0.1" placeholder="0" value={d.kvm} onChange={e=>setSvcField(svcKey,'kvm',e.target.value)} style={inp}/></div>
+                          <div><label style={{display:'block',fontSize:12,fontWeight:500,marginBottom:4,color:C.textSec}}>Tim *</label><input type="number" min={0} max={99} placeholder="0" value={d.hours} onChange={e=>setSvcField(svcKey,'hours',e.target.value)} style={inp}/></div>
+                          <div><label style={{display:'block',fontSize:12,fontWeight:500,marginBottom:4,color:C.textSec}}>Min *</label><input type="number" min={0} max={59} placeholder="0" value={d.mins} onChange={e=>setSvcField(svcKey,'mins',e.target.value)} style={inp}/></div>
+                          <div><label style={{display:'block',fontSize:12,fontWeight:500,marginBottom:4,color:C.textSec}}>Pris (kr) *</label><input type="number" min={0} placeholder="0" value={d.pris} onChange={e=>setSvcField(svcKey,'pris',e.target.value)} style={inp}/></div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:12,marginTop:18,flexWrap:'wrap' as const}}>
+              <button onClick={saveJob2025} disabled={jobs2025Saving} style={{...btn(C.primary),opacity:jobs2025Saving?0.6:1}}><i className={jobs2025EditId?'fas fa-save':'fas fa-plus'}/>{jobs2025Saving?'Sparar…':jobs2025EditId?' Spara ändringar':' Lägg till'}</button>
+              {jobs2025EditId&&<button onClick={()=>{setJobs2025Form(EMPTY_JOB_FORM);setJobs2025EditId(null);setJobs2025Msg('')}} style={btn('#64748b')}><i className="fas fa-times"/> Avbryt</button>}
+              {jobs2025Msg&&<span style={{fontSize:13,color:jobs2025Msg.startsWith('✓')?'#10b981':'#ef4444',fontWeight:500}}>{jobs2025Msg}</span>}
+            </div>
+          </div>
+
+          <div style={{background:C.surface,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',overflow:'hidden'}}>
+            <div style={{padding:'16px 24px',borderBottom:`1px solid ${C.border}`}}>
+              <h2 style={{fontSize:16,fontWeight:600,color:C.text}}>Jobb ({stats2025.totalJobb})</h2>
+            </div>
+            {jobs2025.length===0
+              ?<div style={{textAlign:'center',padding:'48px',color:C.textSec}}><i className="fas fa-clipboard-list" style={{fontSize:36,opacity:0.2,display:'block',marginBottom:12}}/>Inga jobb tillagda ännu</div>
+              :<div style={{overflowX:'auto'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:14}}>
+                  <thead>
+                    <tr style={{background:C.bg}}>
+                      {['Namn','Tjänster','KVM','Tid','Pris',''].map((h,i)=>(
+                        <th key={i} style={{padding:'10px 16px',textAlign:i===5?'right':'left',fontSize:12,fontWeight:600,color:C.textSec,letterSpacing:'0.05em',textTransform:'uppercase' as const,whiteSpace:'nowrap'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {jobs2025.map((j,rowIdx)=>{
+                      const items=getJob2025Items(j)
+                      const totKvm=items.reduce((s,i)=>s+(i.kvm||0),0)
+                      const totTid=items.reduce((s,i)=>s+(i.tid||0),0)
+                      const totPris=items.reduce((s,i)=>s+(i.pris||0),0)
+                      const isEditing=jobs2025EditId===j.id
+                      return(
+                        <tr key={j.id} style={{borderTop:`1px solid ${C.border}`,background:isEditing?`${C.primary}08`:rowIdx%2===0?C.surface:C.bg}}>
+                          <td style={{padding:'12px 16px',fontWeight:600,color:C.text,verticalAlign:'top'}}>{j.name}</td>
+                          <td style={{padding:'12px 16px',verticalAlign:'top'}}>
+                            <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                              {items.map((it,ii)=>(
+                                <div key={ii} style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap' as const}}>
+                                  <span style={{padding:'2px 8px',borderRadius:9999,fontSize:11,fontWeight:600,background:`${C.primary}18`,color:C.primary,whiteSpace:'nowrap'}}>{SERVICES_2025.find(s=>s.key===it.service)?.label||it.service}</span>
+                                  <span style={{fontSize:12,color:C.textSec}}>{it.kvm} kvm · {fmtMins(it.tid||0)} · <span style={{color:'#10b981',fontWeight:600}}>{fmtCur(it.pris||0)}</span></span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                          <td style={{padding:'12px 16px',color:C.text,verticalAlign:'top',whiteSpace:'nowrap'}}>{totKvm} kvm</td>
+                          <td style={{padding:'12px 16px',color:C.text,verticalAlign:'top',whiteSpace:'nowrap'}}>{fmtMins(totTid)}</td>
+                          <td style={{padding:'12px 16px',fontWeight:700,color:'#10b981',verticalAlign:'top',whiteSpace:'nowrap'}}>{fmtCur(Math.round(totPris))}</td>
+                          <td style={{padding:'12px 16px',verticalAlign:'top',textAlign:'right',whiteSpace:'nowrap'}}>
+                            <div style={{display:'flex',gap:6,justifyContent:'flex-end'}}>
+                              <button onClick={()=>openEditJob2025(j)} style={{display:'inline-flex',alignItems:'center',gap:4,padding:'5px 10px',background:isEditing?C.primary:'#64748b',color:'white',border:'none',borderRadius:6,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}><i className="fas fa-edit"/> Redigera</button>
+                              <button onClick={()=>deleteJob2025(j.id)} style={{display:'inline-flex',alignItems:'center',gap:4,padding:'5px 10px',background:'#ef4444',color:'white',border:'none',borderRadius:6,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}><i className="fas fa-trash"/> Ta bort</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        </>}
+      </main>
+
+      {showAI&&(
+        <div style={{width:isMobile?'100%':400,flexShrink:0,height:'100vh',borderLeft:isMobile?'none':`1px solid ${C.border}`,...(isMobile?{position:'fixed' as const,inset:0,zIndex:1050}:{})}}>
+          <AIPanel onClose={()=>setShowAI(false)} onAction={handleAIAction} dark={dark} C={C as any}/>
+        </div>
+      )}
+
+      {/* ── KUND-MODAL ── */}
+      {showModal&&current&&(
+        <div style={modalOverlay} onClick={e=>{if(e.target===e.currentTarget){setShowModal(false);setCurrent(null)}}}>
+          <div style={modalBox(900)}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:isMobile?'16px':'24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:10}}>
+              <h2 style={{fontSize:isMobile?18:22,fontWeight:600,color:C.text}}>{current.name}</h2>
+              <button onClick={()=>{setShowModal(false);setCurrent(null)}} style={{width:36,height:36,border:'none',background:C.bg,borderRadius:8,cursor:'pointer',fontSize:18,color:C.text,display:'flex',alignItems:'center',justifyContent:'center'}}><i className="fas fa-times"/></button>
+            </div>
+            <div style={{padding:isMobile?16:24}}>
+              {!editMode
+                ?<div style={{marginBottom:24}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+                    <h3 style={{fontSize:16,fontWeight:600,color:C.text}}>Kunduppgifter</h3>
+                    <button onClick={()=>setEditMode(true)} style={btn('#64748b')}><i className="fas fa-edit"/> Redigera</button>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fit,minmax(220px,1fr))',gap:12}}>
+                    {([
+                      ['fas fa-phone',current.phone],
+                      ['fas fa-envelope',current.email||'Ingen e-post'],
+                      ['fas fa-map-marker-alt',current.address],
+                      ['fas fa-tools',getServices(current).map((s:string)=>`${svcLabel(s)} (${getKvm(current)[s]||0}kvm)`).join(', ')],
+                      ['fas fa-tag',(parseFloat(current.price_excl_vat)||0)>0?fmtCur(parseFloat(current.price_excl_vat)):'Inget pris satt'],
+                    ] as [string,string][]).map(([icon,val])=>(
+                      <div key={icon} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 16px',background:C.bg,borderRadius:8}}>
+                        <i className={icon} style={{color:C.primary,width:18}}/><span style={{fontSize:14,color:C.text}}>{val}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {current.note&&<div style={{marginTop:12,padding:'10px 14px',background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.35)',borderLeft:'3px solid #f59e0b',borderRadius:8,fontSize:14,color:C.text}}>📝 {current.note}</div>}
+                  {current.rejected&&<div style={{marginTop:12,padding:'10px 14px',background:'rgba(239,68,68,0.1)',borderLeft:'3px solid #ef4444',borderRadius:8,fontSize:14,color:'#ef4444',fontWeight:600}}><i className="fas fa-times-circle"/> Offert nekad</div>}
+                </div>
+                :<EditForm current={current} C={C} inp={inp} btn={btn} onSave={async(data:any)=>{await updateCust(current.id,data);setEditMode(false)}} onCancel={()=>setEditMode(false)}/>
+              }
+
+              {/* ÄRENDEPROCESS */}
+              <div style={{marginBottom:24}}>
+                <h3 style={{fontSize:16,fontWeight:600,marginBottom:16,color:C.text}}>Ärendeprocess</h3>
+                {getServices(current).map((service:string)=>{
+                  const steps=getSteps(service,current.include_fogsand),cur2=getProgress(current)[service]||0
+                  const offIdx=steps.findIndex(s=>s.label==='Offert'),onOffer=cur2===offIdx&&offIdx>-1
+                  return(
+                    <div key={service} style={{background:C.bg,borderRadius:12,border:`2px solid ${C.border}`,padding:isMobile?14:20,marginBottom:12}}>
+                      <h4 style={{fontSize:14,fontWeight:600,color:C.primary,marginBottom:16,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-tools"/>{svcLabel(service)} — {getKvm(current)[service]||0} kvm</h4>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16,overflowX:'auto',paddingBottom:4}}>
+                        {steps.map((step,i)=>{
+                          const done=i<cur2,active=i===cur2
+                          return(
+                            <div key={i} style={{flex:1,textAlign:'center',position:'relative',minWidth:isMobile?44:56}}>
+                              {i<steps.length-1&&<div style={{position:'absolute',top:20,left:'50%',right:'-50%',height:2,background:done?'#10b981':'#e2e8f0',zIndex:0}}/>}
+                              <div onClick={()=>!onOffer&&moveStep(service,i)} style={{position:'relative',zIndex:1,width:isMobile?34:40,height:isMobile?34:40,borderRadius:'50%',background:done?'#10b981':active?C.primary:'#e2e8f0',color:done||active?'white':'#64748b',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 6px',fontWeight:600,fontSize:isMobile?12:14,cursor:onOffer?'default':'pointer',transition:'all 0.2s',boxShadow:active?`0 0 0 4px ${C.primary}33`:'none'}}>
+                                {done?<i className="fas fa-check"/>:step.id}
+                              </div>
+                              <div style={{fontSize:isMobile?9:11,color:active?C.text:C.textSec,fontWeight:active?600:400,position:'relative',zIndex:1}}>{step.label}</div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {onOffer
+                        ?<div style={{background:'#fffbeb',border:'1px solid #fbbf24',borderRadius:8,padding:12,display:'flex',flexDirection:'column',gap:8}}>
+                          <span style={{fontSize:13,color:'#92400e',fontWeight:500}}><i className="fas fa-file-invoice"/> Väntar på kundens svar</span>
+                          <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
+                            <button onClick={()=>acceptOffer(service)} style={btn('#10b981')}><i className="fas fa-check"/> Accepterad</button>
+                            <button onClick={rejectOffer} style={btn('#ef4444')}><i className="fas fa-times"/> Nekad</button>
+                          </div>
+                        </div>
+                        :<div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
+                          {cur2>0&&<button onClick={()=>moveStep(service,cur2-1)} style={btn('#64748b')}><i className="fas fa-arrow-left"/> Tillbaka</button>}
+                          {cur2<steps.length-1&&<button onClick={()=>moveStep(service,cur2+1)} style={btn(C.primary)}>Nästa <i className="fas fa-arrow-right"/></button>}
+                        </div>
+                      }
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* LOGGA TID */}
+              <div style={{marginBottom:24,background:C.bg,borderRadius:12,padding:isMobile?14:20,border:`1px solid ${C.border}`}}>
+                <h3 style={{fontSize:16,fontWeight:600,marginBottom:16,color:C.text,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-clock" style={{color:C.primary}}/> Logga tid</h3>
+                <div style={{display:'flex',gap:10,flexWrap:'wrap' as const,marginBottom:16,alignItems:'center'}}>
+                  <select value={timeForm.moment} onChange={e=>setTimeForm({...timeForm,moment:e.target.value})} style={{...inp,flex:'2 1 160px',minWidth:160,cursor:'pointer'}}>
+                    <option value="">Välj moment...</option>
+                    {buildMoments(current).map(m=><option key={m} value={m}>{m}</option>)}
+                  </select>
+                  <input type="number" min={0} max={23} placeholder="Tim" value={timeForm.hours} onChange={e=>setTimeForm({...timeForm,hours:e.target.value})} style={{...inp,flex:'1 1 70px',minWidth:70}}/>
+                  <input type="number" min={0} max={59} placeholder="Min" value={timeForm.mins} onChange={e=>setTimeForm({...timeForm,mins:e.target.value})} style={{...inp,flex:'1 1 70px',minWidth:70}}/>
+                  <input type="date" value={timeForm.date} onChange={e=>setTimeForm({...timeForm,date:e.target.value})} style={{...inp,flex:'1 1 140px',minWidth:140}}/>
+                  <button onClick={logTime} style={{...btn(C.primary),flexShrink:0,whiteSpace:'nowrap'}}><i className="fas fa-clock"/> Logga tid</button>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:12}}>
+                  {([
+                    ['Total tid',   totalTid,  C.primary],
+                    ['Momenttid',   momentTid, '#10b981'],
+                    ['Admintid',    adminTid,  '#f59e0b'],
+                    ['Körtid',      korTid,    '#8b5cf6'],
+                  ] as [string,number,string][]).map(([label,mins,color])=>(
+                    <div key={label} style={{background:C.surface,borderRadius:8,padding:'14px 16px',border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:12,color:C.textSec,marginBottom:4}}>{label}:</div>
+                      <div style={{fontSize:isMobile?16:20,fontWeight:700,color}}>{fmtMins(mins)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* AKTIVITETSLOGG */}
+              <div style={{marginBottom:24}}>
+                <h3 style={{fontSize:16,fontWeight:600,marginBottom:16,color:C.text}}>Aktivitetslogg</h3>
+                <div style={{marginBottom:12,display:'flex',gap:8}}>
+                  <textarea value={comment} onChange={e=>setComment(e.target.value)} placeholder="Skriv en kommentar..." rows={2} style={{...inp,flex:1,resize:'vertical' as const}}/>
+                  <button onClick={addComment} style={btn(C.primary)}><i className="fas fa-comment"/> Lägg till</button>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                  {logs.length===0
+                    ?<div style={{textAlign:'center',padding:20,color:C.textSec}}>Ingen aktivitet ännu</div>
+                    :logs.map(log=>{
+                      const isEditing=editLogId===log.id
+                      const accentColor=log.log_type==='comment'?C.primary:log.log_type==='status_change'?'#10b981':'#f59e0b'
+                      return(
+                        <div key={log.id} style={{padding:'10px 14px',background:C.bg,borderRadius:8,borderLeft:`3px solid ${accentColor}`}}>
+                          <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,gap:8}}>
+                            <span style={{fontSize:12,fontWeight:500,color:C.textSec}}>
+                              <i className={log.log_type==='comment'?'fas fa-comment':log.log_type==='status_change'?'fas fa-sync':'fas fa-clock'}/>
+                              {' '}{log.log_type==='comment'?'Kommentar':log.log_type==='status_change'?'Statusändring':'Tidslogg'}
+                              {log.log_type==='time_log'&&log.date&&<span style={{marginLeft:6,color:C.textSec}}>· {log.date}</span>}
+                            </span>
+                            <span style={{fontSize:11,color:C.textSec,flexShrink:0}}>{fmtDate(log.timestamp)}</span>
+                          </div>
+                          {isEditing?(
+                            log.log_type==='time_log'?(
+                              <div style={{display:'flex',gap:8,flexWrap:'wrap' as const,alignItems:'flex-end',marginTop:8}}>
+                                <div style={{flex:'2 1 140px',minWidth:140}}>
+                                  <label style={{display:'block',fontSize:11,color:C.textSec,marginBottom:3}}>Moment</label>
+                                  <select value={editLogForm.moment} onChange={e=>setEditLogForm({...editLogForm,moment:e.target.value})} style={{...inp,fontSize:12,padding:'6px 8px',cursor:'pointer'}}>
+                                    <option value="">Välj moment...</option>
+                                    {buildMoments(current).map(m=><option key={m} value={m}>{m}</option>)}
+                                  </select>
+                                </div>
+                                <div style={{flex:'1 1 62px',minWidth:62}}><label style={{display:'block',fontSize:11,color:C.textSec,marginBottom:3}}>Tim</label><input type="number" min={0} max={23} value={editLogForm.hours} onChange={e=>setEditLogForm({...editLogForm,hours:e.target.value})} style={{...inp,fontSize:12,padding:'6px 8px'}}/></div>
+                                <div style={{flex:'1 1 62px',minWidth:62}}><label style={{display:'block',fontSize:11,color:C.textSec,marginBottom:3}}>Min</label><input type="number" min={0} max={59} value={editLogForm.mins} onChange={e=>setEditLogForm({...editLogForm,mins:e.target.value})} style={{...inp,fontSize:12,padding:'6px 8px'}}/></div>
+                                <div style={{flex:'1 1 130px',minWidth:130}}><label style={{display:'block',fontSize:11,color:C.textSec,marginBottom:3}}>Datum</label><input type="date" value={editLogForm.date} onChange={e=>setEditLogForm({...editLogForm,date:e.target.value})} style={{...inp,fontSize:12,padding:'6px 8px'}}/></div>
+                                <div style={{display:'flex',gap:6,alignSelf:'flex-end'}}>
+                                  <button onClick={saveEditLog} style={{...btn('#10b981'),padding:'7px 12px',fontSize:12}}><i className="fas fa-save"/> Spara</button>
+                                  <button onClick={()=>{setEditLogId(null);setEditLogForm({})}} style={{...btn('#64748b'),padding:'7px 10px',fontSize:12}}><i className="fas fa-times"/></button>
+                                </div>
+                              </div>
+                            ):(
+                              <div style={{display:'flex',gap:8,alignItems:'flex-start',marginTop:8}}>
+                                <textarea value={editLogForm.content} onChange={e=>setEditLogForm({...editLogForm,content:e.target.value})} rows={2} style={{...inp,flex:1,resize:'vertical' as const,fontSize:13,padding:'6px 10px'}}/>
+                                <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                                  <button onClick={saveEditLog} style={{...btn('#10b981'),padding:'7px 10px',fontSize:12}}><i className="fas fa-save"/></button>
+                                  <button onClick={()=>{setEditLogId(null);setEditLogForm({})}} style={{...btn('#64748b'),padding:'7px 10px',fontSize:12}}><i className="fas fa-times"/></button>
+                                </div>
+                              </div>
+                            )
+                          ):(
+                            <div style={{fontSize:13,color:C.text}}>{log.content}</div>
+                          )}
+                          {!isEditing&&(
+                            <div style={{display:'flex',justifyContent:'flex-end',gap:6,marginTop:8}}>
+                              {(log.log_type==='time_log'||log.log_type==='comment')&&(
+                                <button onClick={()=>startEditLog(log)} style={{padding:'3px 9px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,color:C.textSec,cursor:'pointer',fontFamily:'inherit',display:'inline-flex',alignItems:'center',gap:4,minHeight:26}}><i className="fas fa-edit"/>Redigera</button>
+                              )}
+                              <button onClick={()=>deleteLog(log.id)} style={{padding:'3px 9px',background:'transparent',border:'1px solid rgba(239,68,68,0.35)',borderRadius:6,fontSize:11,color:'#ef4444',cursor:'pointer',fontFamily:'inherit',display:'inline-flex',alignItems:'center',gap:4,minHeight:26}}><i className="fas fa-trash"/>Ta bort</button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })
+                  }
+                </div>
+              </div>
+              <div style={{paddingTop:16,borderTop:`1px solid ${C.border}`}}>
+                <button onClick={deleteCust} style={btn('#ef4444')}><i className="fas fa-trash"/> Ta bort ärende</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── UH MODAL: Lägg till/Redigera ── */}
+      {uhModal&&(
+        <div style={{...modalOverlay,zIndex:1001}} onClick={e=>{if(e.target===e.currentTarget)setUhModal(false)}}>
+          <div style={modalBox(500)}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'20px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:10}}>
+              <h2 style={{fontSize:20,fontWeight:600,color:C.text}}>{uhIsEdit?'Redigera avtal':'Lägg till årligt underhåll'}</h2>
+              <button onClick={()=>setUhModal(false)} style={{background:'none',border:'none',color:C.textSec,cursor:'pointer',fontSize:22}}><i className="fas fa-times"/></button>
+            </div>
+            <div style={{padding:24}}>
+              {([['Namn *','name','text'],['Telefon *','phone','tel'],['E-post','email','email'],['Adress *','address','text']] as [string,string,string][]).map(([label,field,type])=>(
+                <div key={field} style={{marginBottom:16}}>
+                  <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>{label}</label>
+                  <input type={type} value={(uhForm as any)[field]} onChange={e=>setUhForm({...uhForm,[field]:e.target.value})} style={inp}/>
+                </div>
+              ))}
+              <div style={{marginBottom:16}}>
+                <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Årligt belopp (exkl. moms)</label>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <input type="number" value={uhForm.amount} onChange={e=>setUhForm({...uhForm,amount:e.target.value})} placeholder="0" style={{...inp,maxWidth:180}}/>
+                  <span style={{color:C.textSec}}>kr/år</span>
+                </div>
+              </div>
+              <div style={{marginBottom:24}}>
+                <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Notis</label>
+                <textarea value={uhForm.note} onChange={e=>setUhForm({...uhForm,note:e.target.value})} rows={2} style={{...inp,resize:'vertical' as const}}/>
+              </div>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',flexWrap:'wrap' as const}}>
+                <button onClick={()=>setUhModal(false)} style={btn('#64748b')}>Avbryt</button>
+                <button onClick={saveContract} style={btn(C.primary)}><i className="fas fa-save"/> Spara avtal</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── UH MODAL: Detalj ── */}
+      {uhDetailModal&&uhCurrent&&(
+        <div style={{...modalOverlay,zIndex:1001}} onClick={e=>{if(e.target===e.currentTarget)setUhDetailModal(false)}}>
+          <div style={modalBox(500)}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'20px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:10}}>
+              <h2 style={{fontSize:20,fontWeight:600,color:C.text}}>{uhCurrent.name}</h2>
+              <button onClick={()=>setUhDetailModal(false)} style={{background:'none',border:'none',color:C.textSec,cursor:'pointer',fontSize:22}}><i className="fas fa-times"/></button>
+            </div>
+            <div style={{padding:24}}>
+              <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:12,marginBottom:20}}>
+                {([
+                  ['fas fa-phone',uhCurrent.phone||'—'],
+                  ['fas fa-envelope',uhCurrent.email||'Ingen e-post'],
+                  ['fas fa-map-marker-alt',uhCurrent.address],
+                  ['fas fa-money-bill-wave',(parseFloat(uhCurrent.amount)||0)>0?fmtCur(parseFloat(uhCurrent.amount))+'/år':'Inget belopp'],
+                ] as [string,string][]).map(([icon,val])=>(
+                  <div key={icon} style={{display:'flex',alignItems:'center',gap:10,padding:'12px',background:C.bg,borderRadius:8}}>
+                    <i className={icon} style={{color:C.primary,width:18}}/><span style={{fontSize:13,color:C.text}}>{val}</span>
+                  </div>
+                ))}
+              </div>
+              {uhCurrent.note&&<div style={{marginBottom:16,padding:'10px 14px',background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.35)',borderLeft:'3px solid #f59e0b',borderRadius:8,fontSize:14,color:C.text}}>📝 {uhCurrent.note}</div>}
+              <div style={{display:'flex',gap:10,flexWrap:'wrap' as const,paddingTop:16,borderTop:`1px solid ${C.border}`}}>
+                <button onClick={async()=>{await toggleDone(uhCurrent.id);setUhDetailModal(false)}} style={btn(uhCurrent.done?'#64748b':'#10b981')}><i className={uhCurrent.done?'fas fa-undo':'fas fa-check-circle'}/>{uhCurrent.done?' Ångra genomförd':' Markera genomförd'}</button>
+                <button onClick={()=>{setUhDetailModal(false);openUhEdit(uhCurrent)}} style={btn('#64748b')}><i className="fas fa-edit"/> Redigera</button>
+                <button onClick={()=>deleteContract(uhCurrent.id)} style={btn('#ef4444')}><i className="fas fa-trash"/> Ta bort</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── UH MODAL: Importera ── */}
+      {uhImportModal&&(
+        <div style={{...modalOverlay,zIndex:1001}} onClick={e=>{if(e.target===e.currentTarget)setUhImportModal(false)}}>
+          <div style={modalBox(500)}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'20px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:10}}>
+              <h2 style={{fontSize:20,fontWeight:600,color:C.text}}>Importera kund till underhåll</h2>
+              <button onClick={()=>setUhImportModal(false)} style={{background:'none',border:'none',color:C.textSec,cursor:'pointer',fontSize:22}}><i className="fas fa-times"/></button>
+            </div>
+            <div style={{padding:24}}>
+              <p style={{color:C.textSec,fontSize:14,marginBottom:16}}>Välj en befintlig kund så fylls uppgifterna i automatiskt.</p>
+              <div style={{display:'flex',alignItems:'center',gap:8,background:C.bg,padding:'10px 14px',borderRadius:8,marginBottom:12,border:`1px solid ${C.border}`}}>
+                <i className="fas fa-search" style={{color:C.textSec}}/>
+                <input value={uhImportQ} onChange={e=>setUhImportQ(e.target.value)} placeholder="Skriv namn eller adress..." style={{border:'none',background:'transparent',outline:'none',flex:1,fontFamily:'inherit',fontSize:14,color:C.text}}/>
+              </div>
+              <div style={{maxHeight:280,overflowY:'auto',display:'flex',flexDirection:'column',gap:8}}>
+                {uhFiltered.map(c=>(
+                  <div key={c.id} onClick={()=>importCustomer(c)} style={{padding:'12px 16px',background:C.bg,borderRadius:8,cursor:'pointer',border:'2px solid transparent',transition:'border-color 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}
+                    onMouseEnter={e=>(e.currentTarget.style.borderColor=C.primary)}
+                    onMouseLeave={e=>(e.currentTarget.style.borderColor='transparent')}>
+                    <div><div style={{fontSize:14,fontWeight:600,color:C.text}}>{c.name}</div><div style={{fontSize:12,color:C.textSec}}>{c.address} · {c.phone}</div></div>
+                    <i className="fas fa-chevron-right" style={{color:C.textSec}}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ─── CUSTOMER CARD ──────────────────────────────────────────── */
+function CustomerCard({c,C,onClick}:{c:any,C:any,onClick:()=>void}){
+  const status=getStatus(c),prog=Math.round(calcProgress(c))
+  const svcs=getServices(c),kvm=getKvm(c)
+  const svcStr=svcs.map((s:string)=>`${svcLabel(s)} (${kvm[s]||0}kvm)`).join(', ')
+  const statusColors:Record<string,string>={new:'#f59e0b',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
+  const price=parseFloat(c.price_excl_vat)||0
+  return(
+    <div onClick={onClick} style={{background:C.surface,padding:24,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.08)',cursor:'pointer',border:'2px solid transparent',transition:'all 0.2s'}}
+      onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor='#2563eb';(e.currentTarget as HTMLElement).style.boxShadow='0 10px 15px -3px rgba(0,0,0,0.1)'}}
+      onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor='transparent';(e.currentTarget as HTMLElement).style.boxShadow='0 1px 3px rgba(0,0,0,0.08)'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:600,color:C.text,marginBottom:4}}>{c.name}</div>
+          <div style={{fontSize:13,color:C.textSec}}>{svcStr}</div>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}}>
+          <span style={{padding:'4px 12px',borderRadius:9999,fontSize:12,fontWeight:600,background:`${statusColors[status]}18`,color:statusColors[status],whiteSpace:'nowrap'}}>{statusLabel(status)}</span>
+          {price>0&&<span style={{fontSize:13,fontWeight:700,color:'#10b981',whiteSpace:'nowrap'}}>{fmtCur(price)}</span>}
+        </div>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:12}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:14,color:C.textSec}}><i className="fas fa-phone" style={{width:16,color:C.primary}}/>{c.phone}</div>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:14,color:C.textSec}}><i className="fas fa-map-marker-alt" style={{width:16,color:C.primary}}/>{c.address}</div>
+      </div>
+      {c.note&&<div style={{fontSize:12,color:C.text,background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.3)',padding:'6px 10px',borderRadius:6,marginBottom:12}}>📝 {c.note}</div>}
+      <div style={{paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+        <div style={{fontSize:12,color:C.textSec,marginBottom:6}}>Framsteg: {prog}%</div>
+        <div style={{height:8,background:C.bg,borderRadius:9999,overflow:'hidden'}}>
+          <div style={{height:'100%',width:`${prog}%`,background:C.primary,borderRadius:9999,transition:'width 0.3s'}}/>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─── EDIT FORM ──────────────────────────────────────────────── */
+function EditForm({current,C,inp,btn,onSave,onCancel}:any){
+  const services=getServices(current)
+  const hasStentvatt=services.includes('stentvatt')
+  const [form,setForm]=useState({
+    name:current.name,
+    phone:current.phone,
+    email:current.email||'',
+    address:current.address,
+    note:current.note||'',
+    price:current.price_excl_vat||'',
+    service_kvm:getKvm(current) as Record<string,string>,
+    include_fogsand:current.include_fogsand||false,
+  })
+  return(
+    <div style={{marginBottom:24}}>
+      <h3 style={{fontSize:16,fontWeight:600,marginBottom:16,color:C.text}}>Redigera uppgifter</h3>
+      {([['Namn','name','text'],['Telefon','phone','tel'],['E-post','email','email'],['Adress','address','text']] as [string,string,string][]).map(([l,f,t])=>(
+        <div key={f} style={{marginBottom:14}}>
+          <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:5,color:C.text}}>{l}</label>
+          <input type={t} value={(form as any)[f]} onChange={e=>setForm({...form,[f]:e.target.value})} style={inp}/>
+        </div>
+      ))}
+      {services.length>0&&(
+        <div style={{marginBottom:14}}>
+          <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:8,color:C.text}}>Antal kvm per tjänst</label>
+          {services.map((s:string)=>(
+            <div key={s} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+              <span style={{fontSize:13,color:C.text,minWidth:110,fontWeight:500}}>{svcLabel(s)}</span>
+              <input type="number" placeholder="Kvm" value={form.service_kvm[s]||''} onChange={e=>setForm({...form,service_kvm:{...form.service_kvm,[s]:e.target.value}})} style={{...inp,maxWidth:130}}/>
+              <span style={{fontSize:13,color:C.textSec}}>kvm</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {hasStentvatt&&(
+        <div style={{marginBottom:14}}>
+          <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:8,color:C.text}}>Fogsand</label>
+          <button
+            type="button"
+            onClick={()=>setForm({...form,include_fogsand:!form.include_fogsand})}
+            style={{
+              display:'inline-flex',alignItems:'center',gap:8,padding:'8px 16px',
+              border:`2px solid ${form.include_fogsand?'#10b981':'#e2e8f0'}`,
+              borderRadius:8,background:form.include_fogsand?'#f0fdf4':'transparent',
+              color:form.include_fogsand?'#10b981':C.textSec,
+              cursor:'pointer',fontFamily:'inherit',fontSize:13,fontWeight:600,transition:'all 0.2s',
+            }}
+          >
+            <i className={form.include_fogsand?'fas fa-check-square':'fas fa-square'} style={{fontSize:16}}/>
+            {form.include_fogsand?'Fogsand inkluderad':'Inkludera fogsand'}
+          </button>
+        </div>
+      )}
+      <div style={{marginBottom:14}}>
+        <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:5,color:C.text}}>Notis</label>
+        <textarea value={form.note} onChange={e=>setForm({...form,note:e.target.value})} rows={2} style={{...inp,resize:'vertical' as const}}/>
+      </div>
+      <div style={{marginBottom:20}}>
+        <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:5,color:C.text}}>Pris (exkl. moms)</label>
+        <input type="number" value={form.price} onChange={e=>setForm({...form,price:e.target.value})} style={{...inp,maxWidth:180}}/>
+      </div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
+        <button onClick={onCancel} style={btn('#64748b')}>Avbryt</button>
+        <button onClick={()=>onSave({
+          name:form.name,phone:form.phone,email:form.email,address:form.address,
+          note:form.note,price_excl_vat:parseFloat(String(form.price))||0,
+          service_kvm:form.service_kvm,include_fogsand:form.include_fogsand,
+        })} style={btn(C.primary)}>Spara</button>
+      </div>
+    </div>
+  )
+}
+
+/* ─── DONUT CHART ────────────────────────────────────────────── */
+function DonutChart({data,C}:{data:{label:string,value:number,color:string}[],C:any}){
+  const total=data.reduce((s,d)=>s+d.value,0)
+  if(!total)return <div style={{color:C.textSec,textAlign:'center',padding:20,fontSize:13}}>Ingen data</div>
+  const r=45,circ=2*Math.PI*r
+  let offset=0
+  return(
+    <div style={{display:'flex',alignItems:'center',gap:24,flexWrap:'wrap' as const}}>
+      <svg width={120} height={120} viewBox="0 0 120 120" style={{flexShrink:0}}>
+        <circle cx={60} cy={60} r={r} fill="none" stroke={C.border} strokeWidth={18}/>
+        {data.map((d,i)=>{
+          const dash=(d.value/total)*circ,gap=circ-dash
+          const rot=(offset/total)*360-90
+          offset+=d.value
+          return <circle key={i} cx={60} cy={60} r={r} fill="none" stroke={d.color} strokeWidth={18} strokeDasharray={`${dash} ${gap}`} strokeDashoffset={0} transform={`rotate(${rot},60,60)`}/>
+        })}
+        <text x={60} y={64} textAnchor="middle" style={{fontSize:12,fontWeight:700,fill:C.text,fontFamily:'Inter,sans-serif'}}>{total}</text>
+      </svg>
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        {data.map(d=>(
+          <div key={d.label} style={{display:'flex',alignItems:'center',gap:8}}>
+            <div style={{width:10,height:10,borderRadius:'50%',background:d.color,flexShrink:0}}/>
+            <span style={{fontSize:13,color:C.text}}>{d.label}</span>
+            <span style={{fontSize:13,color:C.textSec,marginLeft:'auto',paddingLeft:12}}>{Math.round(d.value/total*100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ─── STAT PAGE ──────────────────────────────────────────────── */
+function StatPage({customers,allLogs,C,isMobile}:any){
+  const GOAL=1_000_000
+  const completedJobs=customers.filter((c:any)=>getStatus(c)==='completed')
+  const totalRev=completedJobs.reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0)
+  const avgRev=completedJobs.length?Math.round(totalRev/completedJobs.length):0
+  const timeLogs=allLogs.filter((l:any)=>l.log_type==='time_log'&&l.time_spent)
+  const completedIds=new Set(completedJobs.map((c:any)=>c.id))
+  const completedTimeLogs=timeLogs.filter((l:any)=>completedIds.has(l.customer_id))
+  const totalMins=completedTimeLogs.reduce((s:number,l:any)=>s+(l.time_spent||0),0)
+  const nonRejectedIds=new Set(customers.filter((c:any)=>!c.rejected).map((c:any)=>c.id))
+  const allMins=timeLogs.filter((l:any)=>nonRejectedIds.has(l.customer_id)).reduce((s:number,l:any)=>s+(l.time_spent||0),0)
+  const revPerHour=totalMins>0&&totalRev>0?Math.round(totalRev/(totalMins/60)):0
+  const custMinsCompleted:Record<string,number>={}
+  completedTimeLogs.forEach((l:any)=>{if(l.customer_id)custMinsCompleted[l.customer_id]=(custMinsCompleted[l.customer_id]||0)+(l.time_spent||0)})
+  const avgHourlyPerJob=completedJobs.length>0?(()=>{
+    const rates=completedJobs.map((c:any)=>{const m=custMinsCompleted[c.id]||0;const r=parseFloat(c.price_excl_vat)||0;return m>0?r/(m/60):0}).filter((x:number)=>x>0)
+    return rates.length?Math.round(rates.reduce((a:number,b:number)=>a+b,0)/rates.length):0
+  })():0
+  const reachedOff=customers.filter((c:any)=>{
+    if(c.rejected)return true
+    const p=getProgress(c),svcs=getServices(c)
+    return svcs.some((s:string)=>{const steps=getSteps(s,c.include_fogsand);const offIdx=steps.findIndex((x:any)=>x.label==='Offert');return offIdx>-1&&(p[s]||0)>offIdx})
+  })
+  const convRate=reachedOff.length>0?Math.round(completedJobs.length/reachedOff.length*100):0
+  const totalKvm=completedJobs.reduce((s:number,c:any)=>{const kvm=getKvm(c);return s+Object.values(kvm).reduce((sk:number,v:any)=>sk+(parseFloat(String(v))||0),0)},0)
+  const goalPct=Math.min(100,Math.round((totalRev/GOAL)*100))
+  const svcColors:Record<string,string>={stentvatt:'#3b82f6',altantvatt:'#10b981',asfaltstvatt:'#f59e0b',stentvatt_no_fogsand:'#8b5cf6',betongtvatt:'#f97316'}
+  const svcRev:Record<string,number>={},svcTime:Record<string,number>={},svcCount:Record<string,number>={}
+  completedJobs.forEach((c:any)=>{
+    const svcs=getServices(c),rev=parseFloat(c.price_excl_vat)||0,perSvc=svcs.length?rev/svcs.length:0
+    svcs.forEach((s:string)=>{svcRev[s]=(svcRev[s]||0)+perSvc;svcCount[s]=(svcCount[s]||0)+1})
+  })
+  completedTimeLogs.forEach((l:any)=>{
+    const svc=Object.keys(svcColors).find(k=>l.moment&&l.moment.toLowerCase().includes(svcLabel(k).toLowerCase()))
+    if(svc)svcTime[svc]=(svcTime[svc]||0)+(l.time_spent||0)
+  })
+  const donutData=Object.entries(svcCount).map(([key,val])=>({label:svcLabel(key),value:val as number,color:svcColors[key]||'#94a3b8'}))
+  const kvmBySvc:Record<string,number>={}
+  completedJobs.forEach((c:any)=>{const kvm=getKvm(c);getServices(c).forEach((s:string)=>{kvmBySvc[s]=(kvmBySvc[s]||0)+(parseFloat(String(kvm[s]))||0)})})
+  const maxKvm=Math.max(...Object.values(kvmBySvc),1)
+  const top5=completedJobs.map((c:any)=>{const m=custMinsCompleted[c.id]||0;const r=parseFloat(c.price_excl_vat)||0;return{name:c.name,kr_h:m>0?Math.round(r/(m/60)):0,mins:m}}).filter((x:any)=>x.kr_h>0).sort((a:any,b:any)=>b.kr_h-a.kr_h).slice(0,5)
+  const medals=['🥇','🥈','🥉','4','5']
+  const cols=isMobile?'repeat(2,1fr)':'repeat(4,1fr)'
+  const kpiRow1:[string,string,string,string][]=[
+    ['fas fa-coins',         'Total omsättning',   totalRev>0?fmtCur(totalRev):'—',                    '#3b82f6'],
+    ['fas fa-receipt',       'Snitt per jobb',     avgRev>0?fmtCur(avgRev):'—',                        '#10b981'],
+    ['fas fa-tachometer-alt','Omsättning / timme', revPerHour>0?fmtCur(revPerHour)+'/h':'—',           '#f59e0b'],
+    ['fas fa-user-check',    'Timlön per jobb',    avgHourlyPerJob>0?fmtCur(avgHourlyPerJob)+'/h':'—', '#06b6d4'],
+  ]
+  const kpiRow2:[string,string,string,string][]=[
+    ['fas fa-briefcase',     'Avslutade jobb',     String(completedJobs.length),                       '#f97316'],
+    ['fas fa-ruler-combined','Total kvm',          totalKvm>0?totalKvm+' kvm':'—',                     '#ec4899'],
+    ['fas fa-bullseye',      'Konverteringsgrad',  reachedOff.length>0?convRate+'%':'—',               '#8b5cf6'],
+    ['fas fa-clock',         'Total tid (aktiva)', allMins>0?fmtMins(allMins):'—',                     '#64748b'],
+  ]
+
+  return(
+    <div>
+
+      {/* ══ PANEL 1: Mål + KPI ══ */}
+      <div style={{background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',marginBottom:16,overflow:'hidden'}}>
+        <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:16}}>
+          <div style={{width:34,height:34,borderRadius:9,background:'rgba(245,158,11,0.12)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <i className="fas fa-trophy" style={{fontSize:14,color:'#f59e0b'}}/>
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:6,gap:8,flexWrap:'wrap' as const}}>
+              <span style={{fontWeight:700,fontSize:13,color:C.text}}>Årsmål: 1 000 000 kr</span>
+              <span style={{fontWeight:700,fontSize:14,color:goalPct>=100?'#10b981':C.primary,whiteSpace:'nowrap'}}>
+                {fmtCur(totalRev)}{' '}<span style={{fontSize:11,color:C.textSec,fontWeight:400}}>({goalPct}%)</span>
+              </span>
+            </div>
+            <div style={{height:10,background:C.bg,borderRadius:9999,overflow:'hidden',border:`1px solid ${C.border}`}}>
+              <div style={{height:'100%',width:`${goalPct}%`,background:goalPct>=100?'#10b981':'linear-gradient(90deg,#3b82f6,#6366f1)',borderRadius:9999,transition:'width 0.4s'}}/>
+            </div>
+          </div>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:cols,borderBottom:`1px solid ${C.border}`}}>
+          {kpiRow1.map(([icon,label,val,color],idx)=>(
+            <div key={label} style={{padding:isMobile?'12px 14px':'16px 20px',borderRight:idx<kpiRow1.length-1?`1px solid ${C.border}`:'none',display:'flex',alignItems:'center',gap:10}}>
+              <div style={{width:34,height:34,borderRadius:9,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <i className={icon} style={{fontSize:14,color}}/>
+              </div>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:isMobile?14:16,fontWeight:700,color:C.text,lineHeight:1.15,whiteSpace:'nowrap'}}>{val}</div>
+                <div style={{fontSize:10,color:C.textSec,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:cols}}>
+          {kpiRow2.map(([icon,label,val,color],idx)=>(
+            <div key={label} style={{padding:isMobile?'12px 14px':'16px 20px',borderRight:idx<kpiRow2.length-1?`1px solid ${C.border}`:'none',display:'flex',alignItems:'center',gap:10}}>
+              <div style={{width:34,height:34,borderRadius:9,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <i className={icon} style={{fontSize:14,color}}/>
+              </div>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:isMobile?14:16,fontWeight:700,color:C.text,lineHeight:1.15,whiteSpace:'nowrap'}}>{val}</div>
+                <div style={{fontSize:10,color:C.textSec,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ══ PANEL 2: Per-tjänst-tabell ══ */}
+      <div style={{background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',marginBottom:16,overflow:'hidden'}}>
+        <div style={{padding:'12px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:8}}>
+          <i className="fas fa-tools" style={{color:C.primary,fontSize:13}}/>
+          <span style={{fontWeight:700,fontSize:13,color:C.text}}>Per tjänst</span>
+        </div>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:isMobile?12:13}}>
+            <thead>
+              <tr style={{background:C.bg}}>
+                {(['Tjänst','Jobb','Omsättning','Snitt/jobb','Tid'] as string[]).map((h,i,a)=>(
+                  <th key={h} style={{padding:'8px 16px',textAlign:'left',fontWeight:600,fontSize:11,color:C.textSec,letterSpacing:'0.04em',textTransform:'uppercase' as const,borderRight:i<a.length-1?`1px solid ${C.border}`:'none',whiteSpace:'nowrap'}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(svcCount).length===0
+                ?<tr><td colSpan={5} style={{padding:'24px',textAlign:'center',color:C.textSec,fontSize:13}}>Inga avslutade jobb ännu</td></tr>
+                :Object.entries(svcCount).map(([svc,cnt],rowIdx)=>{
+                  const rev=svcRev[svc]||0,mins=svcTime[svc]||0,avg=(cnt as number)>0?Math.round((rev as number)/(cnt as number)):0
+                  return(
+                    <tr key={svc} style={{borderTop:`1px solid ${C.border}`,background:rowIdx%2===0?C.surface:C.bg}}>
+                      <td style={{padding:'10px 16px',borderRight:`1px solid ${C.border}`}}>
+                        <div style={{display:'flex',alignItems:'center',gap:7}}>
+                          <div style={{width:8,height:8,borderRadius:'50%',background:svcColors[svc]||'#94a3b8',flexShrink:0}}/>
+                          <span style={{fontWeight:600,color:C.text}}>{svcLabel(svc)}</span>
+                        </div>
+                      </td>
+                      <td style={{padding:'10px 16px',borderRight:`1px solid ${C.border}`,color:C.text,fontWeight:700,textAlign:'center'}}>{cnt as number}</td>
+                      <td style={{padding:'10px 16px',borderRight:`1px solid ${C.border}`,fontWeight:700,color:'#10b981',whiteSpace:'nowrap'}}>{fmtCur(Math.round(rev as number))}</td>
+                      <td style={{padding:'10px 16px',borderRight:`1px solid ${C.border}`,color:C.textSec,whiteSpace:'nowrap'}}>{avg>0?fmtCur(avg):'—'}</td>
+                      <td style={{padding:'10px 16px',color:C.textSec,whiteSpace:'nowrap'}}>{mins>0?fmtMins(mins as number):'—'}</td>
+                    </tr>
+                  )
+                })
+              }
+            </tbody>
+            {Object.entries(svcCount).length>0&&(
+              <tfoot>
+                <tr style={{borderTop:`2px solid ${C.border}`,background:C.bg}}>
+                  <td style={{padding:'10px 16px',fontWeight:700,color:C.text,borderRight:`1px solid ${C.border}`}}>Totalt</td>
+                  <td style={{padding:'10px 16px',fontWeight:700,color:C.text,textAlign:'center',borderRight:`1px solid ${C.border}`}}>{completedJobs.length}</td>
+                  <td style={{padding:'10px 16px',fontWeight:800,color:'#10b981',whiteSpace:'nowrap',borderRight:`1px solid ${C.border}`}}>{fmtCur(Math.round(totalRev))}</td>
+                  <td style={{padding:'10px 16px',color:C.textSec,whiteSpace:'nowrap',borderRight:`1px solid ${C.border}`}}>{avgRev>0?fmtCur(avgRev):'—'}</td>
+                  <td style={{padding:'10px 16px',color:C.textSec,whiteSpace:'nowrap'}}>{totalMins>0?fmtMins(totalMins):'—'}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+        {totalKvm>0&&(
+          <div style={{padding:'10px 16px',borderTop:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap' as const}}>
+            <span style={{fontSize:11,fontWeight:700,color:C.textSec,textTransform:'uppercase' as const,letterSpacing:'0.05em',whiteSpace:'nowrap' as const}}>
+              <i className="fas fa-ruler-combined" style={{marginRight:4,color:'#8b5cf6'}}/>KVM per tjänst:
+            </span>
+            {Object.entries(kvmBySvc).map(([svc,kvm])=>(
+              <span key={svc} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 10px',background:C.bg,borderRadius:9999,border:`1px solid ${C.border}`,fontSize:12}}>
+                <span style={{color:C.textSec}}>{svcLabel(svc)}</span>
+                <span style={{fontWeight:700,color:C.text}}>{Math.round(kvm as number)} kvm</span>
+              </span>
+            ))}
+            <span style={{marginLeft:'auto',display:'inline-flex',alignItems:'center',gap:6,padding:'4px 12px',background:`${C.primary}12`,borderRadius:9999,border:`1px solid ${C.primary}40`,fontSize:12,whiteSpace:'nowrap' as const}}>
+              <span style={{color:C.textSec}}>Totalt:</span>
+              <span style={{fontWeight:700,color:C.primary}}>{Math.round(totalKvm)} kvm</span>
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ══ PANEL 3: Månadsdiagram + Munkdiagram ══ */}
+      <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:16,marginBottom:16}}>
+        <div style={{background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',overflow:'hidden'}}>
+          <div style={{padding:'12px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:8}}>
+            <i className="fas fa-chart-bar" style={{color:C.primary,fontSize:13}}/>
+            <span style={{fontWeight:700,fontSize:13,color:C.text}}>Månadsvis omsättning</span>
+          </div>
+          <div style={{padding:'16px 20px'}}>
+            {(()=>{
+              const months=['Jan','Feb','Mar','Apr','Maj','Jun','Jul','Aug','Sep','Okt','Nov','Dec']
+              const monthRev=months.map((_,i)=>{
+                const m=i+1
+                return completedJobs.filter((c:any)=>{
+                  const d=c.completed_at?new Date(c.completed_at):c.created_at?new Date(c.created_at):null
+                  return d&&d.getMonth()+1===m
+                }).reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0)
+              })
+              const maxRev=Math.max(...monthRev,1)
+              return(
+                <div style={{display:'flex',alignItems:'flex-end',gap:isMobile?3:5,height:120,paddingBottom:24,position:'relative'}}>
+                  {monthRev.map((rev,i)=>{
+                    const pct=rev/maxRev*100
+                    return(
+                      <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',position:'relative'}}>
+                        {rev>0&&<span style={{fontSize:8,color:C.textSec,textAlign:'center',position:'absolute',top:pct>80?0:-14,whiteSpace:'nowrap'}}>{rev>=1000?Math.round(rev/1000)+'k':Math.round(rev)}</span>}
+                        <div style={{width:'100%',height:`${Math.max(pct,rev>0?3:0)}%`,background:rev>0?'linear-gradient(180deg,#3b82f6,#6366f1)':'transparent',borderRadius:'3px 3px 0 0',alignSelf:'flex-end'}}/>
+                        <span style={{fontSize:isMobile?7:8,color:C.textSec,position:'absolute',bottom:-18}}>{months[i]}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </div>
+        </div>
+        <div style={{background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',overflow:'hidden'}}>
+          <div style={{padding:'12px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:8}}>
+            <i className="fas fa-chart-pie" style={{color:'#8b5cf6',fontSize:13}}/>
+            <span style={{fontWeight:700,fontSize:13,color:C.text}}>Tjänstefördelning</span>
+          </div>
+          <div style={{padding:'16px 20px'}}>
+            <DonutChart data={donutData} C={C}/>
+          </div>
+        </div>
+      </div>
+
+      {/* ══ PANEL 4: Stapeldiagram omsättning + tid ══ */}
+      <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:16,marginBottom:16}}>
+        <div style={{background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',overflow:'hidden'}}>
+          <div style={{padding:'12px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:8}}>
+            <i className="fas fa-coins" style={{color:'#10b981',fontSize:13}}/>
+            <span style={{fontWeight:700,fontSize:13,color:C.text}}>Omsättning per tjänst</span>
+          </div>
+          <div style={{padding:'16px 20px'}}>
+            {Object.keys(svcRev).length===0
+              ?<div style={{textAlign:'center',padding:24,color:C.textSec,fontSize:13}}>Inga data</div>
+              :(()=>{
+                const entries=Object.entries(svcRev)
+                const maxVal=Math.max(...entries.map(([,v])=>v as number),1)
+                return(
+                  <div style={{display:'flex',alignItems:'flex-end',gap:isMobile?6:10,height:130,paddingBottom:28,position:'relative'}}>
+                    {entries.map(([svc,rev])=>{
+                      const pct=(rev as number)/maxVal*100
+                      return(
+                        <div key={svc} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',position:'relative'}}>
+                          <span style={{fontSize:9,color:C.textSec,textAlign:'center',position:'absolute',top:pct>80?0:-14,whiteSpace:'nowrap'}}>{(rev as number)>=1000?Math.round((rev as number)/1000)+'k':Math.round(rev as number)}</span>
+                          <div style={{width:'100%',height:`${Math.max(pct,3)}%`,background:svcColors[svc]||'#94a3b8',borderRadius:'3px 3px 0 0',alignSelf:'flex-end'}}/>
+                          <span style={{fontSize:isMobile?8:9,color:C.textSec,position:'absolute',bottom:-20,textAlign:'center',maxWidth:48,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{svcLabel(svc)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()
+            }
+          </div>
+        </div>
+        <div style={{background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',overflow:'hidden'}}>
+          <div style={{padding:'12px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:8}}>
+            <i className="fas fa-clock" style={{color:'#f59e0b',fontSize:13}}/>
+            <span style={{fontWeight:700,fontSize:13,color:C.text}}>Tidslogg per tjänst (tim)</span>
+          </div>
+          <div style={{padding:'16px 20px'}}>
+            {Object.keys(svcTime).length===0
+              ?<div style={{textAlign:'center',padding:24,color:C.textSec,fontSize:13}}>Logga tid per tjänst för att se data</div>
+              :(()=>{
+                const entries=Object.entries(svcTime)
+                const maxVal=Math.max(...entries.map(([,v])=>v as number),1)
+                return(
+                  <div style={{display:'flex',alignItems:'flex-end',gap:isMobile?6:10,height:130,paddingBottom:28,position:'relative'}}>
+                    {entries.map(([svc,mins])=>{
+                      const pct=(mins as number)/maxVal*100,hrs=Math.round((mins as number)/60*10)/10
+                      return(
+                        <div key={svc} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',position:'relative'}}>
+                          <span style={{fontSize:9,color:C.textSec,textAlign:'center',position:'absolute',top:pct>80?0:-14,whiteSpace:'nowrap'}}>{hrs}h</span>
+                          <div style={{width:'100%',height:`${Math.max(pct,3)}%`,background:svcColors[svc]||'#94a3b8',borderRadius:'3px 3px 0 0',alignSelf:'flex-end',opacity:0.85}}/>
+                          <span style={{fontSize:isMobile?8:9,color:C.textSec,position:'absolute',bottom:-20,textAlign:'center',maxWidth:48,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{svcLabel(svc)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()
+            }
+          </div>
+        </div>
+      </div>
+
+      {/* ══ PANEL 5: KVM per tjänst + Top-5 ══ */}
+      <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:16,marginBottom:16}}>
+        <div style={{background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',overflow:'hidden'}}>
+          <div style={{padding:'12px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:8}}>
+            <i className="fas fa-ruler-combined" style={{color:'#06b6d4',fontSize:13}}/>
+            <span style={{fontWeight:700,fontSize:13,color:C.text}}>Kvm per tjänst</span>
+          </div>
+          <div style={{padding:'16px 20px'}}>
+            {Object.keys(kvmBySvc).length===0
+              ?<div style={{textAlign:'center',padding:24,color:C.textSec,fontSize:13}}>Ingen kvm-data</div>
+              :(()=>{
+                const entries=Object.entries(kvmBySvc)
+                return(
+                  <div style={{display:'flex',alignItems:'flex-end',gap:isMobile?6:10,height:130,paddingBottom:28,position:'relative'}}>
+                    {entries.map(([svc,kvm])=>{
+                      const pct=(kvm as number)/maxKvm*100
+                      return(
+                        <div key={svc} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',position:'relative'}}>
+                          <span style={{fontSize:9,color:C.textSec,textAlign:'center',position:'absolute',top:pct>80?0:-14,whiteSpace:'nowrap'}}>{Math.round(kvm as number)}</span>
+                          <div style={{width:'100%',height:`${Math.max(pct,3)}%`,background:'linear-gradient(180deg,#06b6d4,#0891b2)',borderRadius:'3px 3px 0 0',alignSelf:'flex-end'}}/>
+                          <span style={{fontSize:isMobile?8:9,color:C.textSec,position:'absolute',bottom:-20,textAlign:'center',maxWidth:48,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{svcLabel(svc)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()
+            }
+          </div>
+        </div>
+        <div style={{background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',overflow:'hidden'}}>
+          <div style={{padding:'12px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:8}}>
+            <i className="fas fa-trophy" style={{color:'#f59e0b',fontSize:13}}/>
+            <span style={{fontWeight:700,fontSize:13,color:C.text}}>Top 5 – bäst timlön per jobb</span>
+          </div>
+          <div style={{padding:'12px 16px'}}>
+            {top5.length===0
+              ?<div style={{textAlign:'center',padding:24,color:C.textSec,fontSize:13}}>Logga tid på avslutade jobb för att se ranking</div>
+              :top5.map((t:any,i:number)=>(
+                <div key={t.name} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 12px',borderRadius:8,background:i%2===0?C.bg:C.surface,marginBottom:4,border:`1px solid ${C.border}`}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{fontSize:18,minWidth:24}}>{medals[i]}</span>
+                    <div>
+                      <div style={{fontSize:isMobile?12:13,fontWeight:600,color:C.text,maxWidth:isMobile?100:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.name}</div>
+                      <div style={{fontSize:10,color:C.textSec}}>{fmtMins(t.mins)}</div>
+                    </div>
+                  </div>
+                  <span style={{fontSize:isMobile?13:14,fontWeight:800,color:i===0?'#f59e0b':i===1?'#94a3b8':i===2?'#b45309':C.textSec,whiteSpace:'nowrap'}}>{fmtCur(t.kr_h)}/h</span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      </div>
+
+      {/* ══ PANEL 6: Ärendeöversikt ══ */}
+      <div style={{background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',overflow:'hidden',marginBottom:16}}>
+        <div style={{padding:'12px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:8}}>
+          <i className="fas fa-folder-open" style={{color:C.primary,fontSize:13}}/>
+          <span style={{fontWeight:700,fontSize:13,color:C.text}}>Ärendeöversikt</span>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)'}}>
+          {([
+            ['fas fa-star',        'Nya',            customers.filter((c:any)=>getStatus(c)==='new').length,         '#f59e0b'],
+            ['fas fa-spinner',     'Öppnade',        customers.filter((c:any)=>getStatus(c)==='in_progress').length, '#3b82f6'],
+            ['fas fa-check-circle','Stängda',        completedJobs.length,                                           '#10b981'],
+            ['fas fa-times-circle','Ej Accepterade', customers.filter((c:any)=>c.rejected).length,                  '#ef4444'],
+          ] as [string,string,number,string][]).map(([icon,label,count,color],idx,arr)=>(
+            <div key={label} style={{padding:isMobile?'14px 16px':'18px 20px',borderRight:idx<arr.length-1?`1px solid ${C.border}`:'none',display:'flex',alignItems:'center',gap:12}}>
+              <div style={{width:38,height:38,borderRadius:10,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <i className={icon} style={{fontSize:16,color}}/>
+              </div>
+              <div>
+                <div style={{fontSize:isMobile?20:26,fontWeight:800,color,lineHeight:1}}>{count}</div>
+                <div style={{fontSize:11,color:C.textSec,marginTop:2}}>{label}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+    </div>
+  )
+}
