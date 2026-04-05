@@ -70,6 +70,7 @@ function statusLabel(s:string){return({new:'Ny',in_progress:'Pågående',complet
 function fmtDate(d:string){if(!d)return '';return new Date(d).toLocaleDateString('sv-SE',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
 function fmtCur(n:number){return Math.round(n).toLocaleString('sv-SE')+' kr'}
 function fmtMins(m:number){const h=Math.floor(m/60),min=m%60;return `${h}h ${min}m`}
+function fmtTimer(secs:number){const h=Math.floor(secs/3600),m=Math.floor((secs%3600)/60),s=secs%60;return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
 function calcProgress(c:any){const p=getProgress(c),svcs=getServices(c);if(!svcs.length)return 0;let t=0;for(const s of svcs){const st=getSteps(s,c.include_fogsand);t+=(p[s]||0)/(st.length-1)*100}return t/svcs.length}
 function getStatus(c:any){
   if(c.rejected)return 'rejected'
@@ -111,27 +112,19 @@ function stepLabelToProcessStage(stepLabel:string){
     case 'Hembesök':          return 'visit'
     case 'Offert':            return 'offer'
     case 'Bokat':             return 'booked'
-
-    // Huvudtjänst (där ligger stentvätt, altantvätt, asfaltstvätt, betongtvätt)
     case 'Stentvätt':
     case 'Altantvätt':
     case 'Asfaltstvätt':
     case 'Betongtvätt':
       return 'main_service'
-
-    // Efterbehandling (alla efterbehandlingssteg)
     case 'Impregnering':
     case 'Fogsand':
     case 'Efterbehandling':
       return 'aftercare'
-
-    // Fakturering
     case 'Fakturerad':
     case 'Fakturering':
       return 'invoicing'
   }
-
-  // Fallback om du lägger till nya labels framöver:
   if(stepLabel.toLowerCase().includes('tvätt')) return 'main_service'
   return 'aftercare'
 }
@@ -141,7 +134,6 @@ function getCustomerProcessStages(c:any):Set<string>{
   const svcs=getServices(c)
   if(!svcs.length) return new Set(['not_started'])
   if(!Object.keys(p||{}).length) return new Set(['not_started'])
-
   const stages=new Set<string>()
   for(const s of svcs){
     const steps=getSteps(s,c.include_fogsand)
@@ -188,6 +180,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [customers,setCustomers]=useState<any[]>([])
   const [logs,setLogs]=useState<any[]>([])
   const [allLogs,setAllLogs]=useState<any[]>([])
+  const [recentActivityLogs,setRecentActivityLogs]=useState<any[]>([])
   const [filter,setFilter]=useState('active')
   const [processFilter,setProcessFilter]=useState('all')
   const [search,setSearch]=useState('')
@@ -215,23 +208,220 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [sidebarOpen,setSidebarOpen]=useState(false)
   const [editLogId,setEditLogId]=useState<string|null>(null)
   const [editLogForm,setEditLogForm]=useState<any>({})
+  /* Feature 1: Calendar */
+  const [calYear,setCalYear]=useState(new Date().getFullYear())
+  const [calMonth,setCalMonth]=useState(new Date().getMonth())
+  const [showBookedDateModal,setShowBookedDateModal]=useState(false)
+  const [bookedDateCustomer,setBookedDateCustomer]=useState<any>(null)
+  const [bookedDateService,setBookedDateService]=useState('')
+  const [bookedDateValue,setBookedDateValue]=useState(TODAY)
+  /* Feature 2: Timer */
+  const [timerSecs,setTimerSecs]=useState(0)
+  const [timerRunning,setTimerRunning]=useState(false)
+  const [timerCustomerId,setTimerCustomerId]=useState<string|null>(null)
+  const [timerCustomerName,setTimerCustomerName]=useState('')
+  const [timerStartTime,setTimerStartTime]=useState<string|null>(null)
+  const [timerMoment,setTimerMoment]=useState('')
+  const [timerSelectMoment,setTimerSelectMoment]=useState('')
+  /* Feature 3: Quote/Material */
+  const [materialItems,setMaterialItems]=useState<{name:string,qty:string,unit_price:string}[]>([])
+  const [materialSaving,setMaterialSaving]=useState(false)
+  const [materialMsg,setMaterialMsg]=useState('')
+  /* Feature 4: Customer list view */
+  const [custView,setCustView]=useState<'card'|'table'>('card')
+  const [sortCol,setSortCol]=useState('')
+  const [sortAsc,setSortAsc]=useState(true)
+  /* DEL 1 additions */
+  const [listView, setListView] = useState<'cards'|'table'>('cards')
+  const [activeTimer, setActiveTimer] = useState<{customerId:string,moment:string,startMs:number}|null>(null)
+  const [timerDisplay, setTimerDisplay] = useState('00:00:00')
+  const [bookingDateForm, setBookingDateForm] = useState<Record<string,string>>({})
 
   const C=dark?DARK:LIGHT
   const inp:React.CSSProperties={background:C.input,border:`2px solid ${C.inputBorder}`,borderRadius:8,padding:'8px 12px',color:C.text,fontFamily:'inherit',fontSize:14,width:'100%',boxSizing:'border-box',outline:'none'}
   const btn=(bg:string,color='white'):React.CSSProperties=>({display:'inline-flex',alignItems:'center',gap:6,padding:'8px 16px',background:bg,color,border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',minHeight:40})
 
-  useEffect(()=>{loadCustomers();loadAllLogs();loadContracts();loadJobs2025()},[])
+  useEffect(()=>{loadCustomers();loadAllLogs();loadRecentActivity();loadContracts();loadJobs2025()},[])
   useEffect(()=>{
     const check=()=>{setIsMobile(window.innerWidth<768);if(window.innerWidth>=768)setSidebarOpen(false)}
     check();window.addEventListener('resize',check);return()=>window.removeEventListener('resize',check)
   },[])
 
+  /* ── Timer: load from localStorage on mount ── */
+  useEffect(()=>{
+    const stored=localStorage.getItem('ht_active_timer')
+    if(stored){
+      try{
+        const d=JSON.parse(stored)
+        if(d.startTime){
+          const elapsed=Math.floor((Date.now()-new Date(d.startTime).getTime())/1000)
+          setTimerCustomerId(d.customerId||null)
+          setTimerCustomerName(d.customerName||'')
+          setTimerStartTime(d.startTime)
+          setTimerMoment(d.moment||'')
+          setTimerSelectMoment(d.moment||'')
+          setTimerSecs(elapsed>0?elapsed:0)
+          setTimerRunning(true)
+        }
+      }catch{}
+    }
+  },[])
+
+  /* ── Timer: tick ── */
+  useEffect(()=>{
+    if(!timerRunning)return
+    const id=setInterval(()=>{
+      if(timerStartTime){
+        const elapsed=Math.floor((Date.now()-new Date(timerStartTime).getTime())/1000)
+        setTimerSecs(elapsed>0?elapsed:0)
+      }
+    },1000)
+    return()=>clearInterval(id)
+  },[timerRunning,timerStartTime])
+
+  /* ── When modal opens check localStorage timer for this customer ── */
+  useEffect(()=>{
+    if(current&&showModal){
+      const stored=localStorage.getItem('ht_active_timer')
+      if(stored){
+        try{
+          const d=JSON.parse(stored)
+          if(d.customerId===current.id){
+            setTimerSelectMoment(d.moment||'')
+          }
+        }catch{}
+      }
+      /* Load material items */
+      const mi=current.material_items
+      if(Array.isArray(mi)&&mi.length>0){
+        setMaterialItems(mi.map((x:any)=>({name:x.name||'',qty:String(x.qty||''),unit_price:String(x.unit_price||'')})))
+      } else {
+        setMaterialItems([{name:'',qty:'',unit_price:''}])
+      }
+      setMaterialMsg('')
+    }
+  },[current,showModal])
+
+  /* DEL 2: activeTimer tick */
+  useEffect(()=>{
+    if(!activeTimer)return
+    const iv=setInterval(()=>{
+      const e=Date.now()-activeTimer.startMs
+      const h=Math.floor(e/3600000),m=Math.floor((e%3600000)/60000),s=Math.floor((e%60000)/1000)
+      setTimerDisplay(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`)
+    },1000)
+    return()=>clearInterval(iv)
+  },[activeTimer])
+
+  /* DEL 2: material-loader by current?.id */
+  useEffect(()=>{
+    if(current?.material_items){
+      setMaterialItems(current.material_items.map((i:any)=>({name:i.name,qty:String(i.qty),unit_price:String(i.unit_price)})))
+    } else {
+      setMaterialItems([])
+    }
+  },[current?.id])
+
   async function loadCustomers(){const snap=await getDocs(query(collection(db,'customers'),orderBy('created_at','desc')));setCustomers(snap.docs.map(d=>({id:d.id,...d.data()})))}
   async function loadAllLogs(){const snap=await getDocs(query(collection(db,'activity_logs'),where('log_type','==','time_log')));setAllLogs(snap.docs.map(d=>({id:d.id,...d.data()})))}
+  async function loadRecentActivity(){try{const snap=await getDocs(query(collection(db,'activity_logs'),orderBy('timestamp','desc')));const all=snap.docs.map(d=>({id:d.id,...d.data()}));setRecentActivityLogs(all.slice(0,5))}catch{setRecentActivityLogs([])}}
   async function loadLogs(cid:string){const snap=await getDocs(query(collection(db,'activity_logs'),where('customer_id','==',cid)));const l=snap.docs.map(d=>({id:d.id,...d.data()})) as any[];l.sort((a,b)=>new Date(b.timestamp).getTime()-new Date(a.timestamp).getTime());setLogs(l);return l}
   async function loadContracts(){try{const snap=await getDocs(query(collection(db,'maintenance_contracts'),orderBy('created_at','desc')));setUhContracts(snap.docs.map(d=>({id:d.id,...d.data()})))}catch{setUhContracts([])}}
   async function loadJobs2025(){try{const snap=await getDocs(query(collection(db,'customers_2025'),orderBy('created_at','desc')));setJobs2025(snap.docs.map(d=>({id:d.id,...d.data()})))}catch{setJobs2025([])}}
 
+  /* ── Timer functions ── */
+  function startTimer(cust:any,moment:string){
+    const now=new Date().toISOString()
+    const data={customerId:cust.id,customerName:cust.name,startTime:now,moment}
+    localStorage.setItem('ht_active_timer',JSON.stringify(data))
+    setTimerCustomerId(cust.id)
+    setTimerCustomerName(cust.name)
+    setTimerStartTime(now)
+    setTimerMoment(moment)
+    setTimerSecs(0)
+    setTimerRunning(true)
+  }
+  async function stopTimer(){
+    if(!timerCustomerId||!timerStartTime)return
+    const totalMins=Math.max(1,Math.round(timerSecs/60))
+    const momentToLog=timerMoment||'Admin'
+    await addDoc(collection(db,'activity_logs'),{
+      customer_id:timerCustomerId,
+      log_type:'time_log',
+      moment:momentToLog,
+      time_spent:totalMins,
+      date:new Date().toISOString().split('T')[0],
+      content:`${momentToLog}: ${fmtMins(totalMins)} (timer)`,
+      timestamp:new Date().toISOString()
+    })
+    localStorage.removeItem('ht_active_timer')
+    setTimerRunning(false)
+    setTimerCustomerId(null)
+    setTimerCustomerName('')
+    setTimerStartTime(null)
+    setTimerMoment('')
+    setTimerSelectMoment('')
+    setTimerSecs(0)
+    if(current)await loadLogs(current.id)
+    await loadAllLogs()
+    await loadRecentActivity()
+  }
+
+  /* ── Booked date ── */
+  async function saveBookedDate(){
+    if(!bookedDateCustomer)return
+    await updateDoc(doc(db,'customers',bookedDateCustomer.id),{booked_date:bookedDateValue})
+    await loadCustomers()
+    if(current&&current.id===bookedDateCustomer.id){setCurrent((p:any)=>({...p,booked_date:bookedDateValue}))}
+    setShowBookedDateModal(false)
+    setBookedDateCustomer(null)
+    setBookedDateService('')
+    setBookedDateValue(TODAY)
+  }
+
+  /* ── Material items ── */
+  async function saveMaterialItems(){
+    if(!current)return
+    setMaterialSaving(true);setMaterialMsg('')
+    try{
+      const items=materialItems.filter(i=>i.name.trim()).map(i=>({name:i.name.trim(),qty:parseFloat(i.qty)||0,unit_price:parseFloat(i.unit_price)||0}))
+      await updateDoc(doc(db,'customers',current.id),{material_items:items})
+      await loadCustomers()
+      setCurrent((p:any)=>({...p,material_items:items}))
+      setMaterialMsg('✓ Sparat!')
+      setTimeout(()=>setMaterialMsg(''),3000)
+    }catch(e){setMaterialMsg('Fel vid sparning.')}
+    finally{setMaterialSaving(false)}
+  }
+  const materialTotal=materialItems.reduce((s,i)=>{const q=parseFloat(i.qty)||0;const u=parseFloat(i.unit_price)||0;return s+q*u},0)
+  const customerPrice=current?parseFloat(current.price_excl_vat)||0:0
+  const materialProfit=customerPrice-materialTotal
+  const materialMargin=customerPrice>0?Math.round(materialProfit/customerPrice*100):0
+
+  /* ── CSV Export ── */
+  function exportCSV(){
+    const rows=[['Namn','Telefon','E-post','Adress','Tjänster','Status','Pris','Bokningsdatum','Skapat']]
+    filtered.forEach(c=>{
+      rows.push([
+        c.name||'',
+        c.phone||'',
+        c.email||'',
+        c.address||'',
+        getServices(c).map((s:string)=>svcLabel(s)).join('; '),
+        statusLabel(getStatus(c)),
+        String(parseFloat(c.price_excl_vat)||0),
+        c.booked_date||'',
+        c.created_at?new Date(c.created_at).toLocaleDateString('sv-SE'):'',
+      ])
+    })
+    const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')
+    const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'})
+    const url=URL.createObjectURL(blob)
+    const a=document.createElement('a');a.href=url;a.download='kunder.csv';a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  /* ── Jobs 2025 functions ── */
   function openEditJob2025(j:any){
     const items=getJob2025Items(j)
     const selectedServices=items.map((i:any)=>i.service)
@@ -291,7 +481,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   async function toggleDone(id:string){const c=uhContracts.find(x=>x.id===id);if(!c)return;await updateDoc(doc(db,'maintenance_contracts',id),{done:!c.done});await loadContracts()}
   async function deleteContract(id:string){if(!confirm('Ta bort detta avtal?'))return;await deleteDoc(doc(db,'maintenance_contracts',id));await loadContracts();setUhDetailModal(false)}
   async function openCustomer(c:any){setCurrent(c);setShowModal(true);setEditMode(false);setEditLogId(null);setEditLogForm({});setTimeForm({moment:'',hours:'',mins:'',date:TODAY});await loadLogs(c.id)}
-  async function addComment(){if(!current||!comment.trim())return;await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'comment',content:comment,timestamp:new Date().toISOString()});setComment('');await loadLogs(current.id)}
+  async function addComment(){if(!current||!comment.trim())return;await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'comment',content:comment,timestamp:new Date().toISOString()});setComment('');await loadLogs(current.id);await loadRecentActivity()}
   async function updateCust(id:string,data:any){await updateDoc(doc(db,'customers',id),data);await loadCustomers();setCurrent((prev:any)=>({...prev,...data}))}
   async function deleteCust(){if(!current||!confirm(`Ta bort ${current.name}?`))return;await deleteDoc(doc(db,'customers',current.id));setShowModal(false);setCurrent(null);await loadCustomers()}
   async function createCustomer(){
@@ -308,7 +498,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
     const totalMins=(parseInt(timeForm.hours)||0)*60+(parseInt(timeForm.mins)||0)
     if(totalMins<=0)return alert('Ange minst 1 minut')
     await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'time_log',moment:timeForm.moment,time_spent:totalMins,date:timeForm.date,content:`${timeForm.moment}: ${fmtMins(totalMins)}`,timestamp:new Date().toISOString()})
-    setTimeForm({moment:'',hours:'',mins:'',date:TODAY});await loadLogs(current.id);await loadAllLogs()
+    setTimeForm({moment:'',hours:'',mins:'',date:TODAY});await loadLogs(current.id);await loadAllLogs();await loadRecentActivity()
   }
   async function handleAIAction(actionOrEvent?:any){
     if(actionOrEvent&&typeof actionOrEvent==='object'&&actionOrEvent.type==='createCustomer'){
@@ -326,9 +516,19 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   async function moveStep(service:string,idx:number){
     if(!current)return
     const p={...getProgress(current)};p[service]=idx
+    const steps=getSteps(service,current.include_fogsand)
+    const newLabel=steps[idx]?.label||''
     await updateCust(current.id,{service_progress:p})
-    await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'status_change',content:`${svcLabel(service)}: ${getSteps(service,current.include_fogsand)[idx]?.label}`,timestamp:new Date().toISOString()})
+    await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'status_change',content:`${svcLabel(service)}: ${newLabel}`,timestamp:new Date().toISOString()})
     await loadLogs(current.id)
+    await loadRecentActivity()
+    /* Feature 1: if moving to "Bokat", open date picker */
+    if(newLabel==='Bokat'){
+      setBookedDateCustomer({...current,service_progress:p})
+      setBookedDateService(service)
+      setBookedDateValue(TODAY)
+      setShowBookedDateModal(true)
+    }
   }
   async function acceptOffer(service:string){
     if(!current||!confirm('Markera offert som accepterad?'))return
@@ -339,18 +539,26 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
     await updateCust(current.id,{service_progress:p,rejected:false})
     await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'status_change',content:`${svcLabel(service)}: Offert accepterad → Bokat`,timestamp:new Date().toISOString()})
     await loadLogs(current.id)
+    await loadRecentActivity()
+    /* open date picker */
+    setBookedDateCustomer({...current,service_progress:p})
+    setBookedDateService(service)
+    setBookedDateValue(TODAY)
+    setShowBookedDateModal(true)
   }
   async function rejectOffer(){
     if(!current||!confirm('Markera offert som nekad?'))return
     await updateCust(current.id,{rejected:true})
     await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'status_change',content:'Offert nekad',timestamp:new Date().toISOString()})
     await loadLogs(current.id)
+    await loadRecentActivity()
   }
   async function deleteLog(logId:string){
     if(!confirm('Ta bort denna loggpost?'))return
     await deleteDoc(doc(db,'activity_logs',logId))
     if(current)await loadLogs(current.id)
     await loadAllLogs()
+    await loadRecentActivity()
   }
   function startEditLog(log:any){
     setEditLogId(log.id)
@@ -372,20 +580,35 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
     setEditLogId(null);setEditLogForm({});await loadLogs(current.id)
   }
 
-  const filtered=customers.filter(c=>{
-    const s=getStatus(c)
-    if(filter==='active'&&s!=='new'&&s!=='in_progress')return false
-    if(filter==='rejected'&&s!=='rejected')return false
-    if(filter!=='all'&&filter!=='active'&&filter!=='rejected'&&s!==filter)return false
-
-    if(processFilter!=='all'){
-      const stages=getCustomerProcessStages(c)
-      if(!stages.has(processFilter))return false
+  /* ── Derived values ── */
+  const filtered=(()=>{
+    let list=customers.filter(c=>{
+      const s=getStatus(c)
+      if(filter==='active'&&s!=='new'&&s!=='in_progress')return false
+      if(filter==='rejected'&&s!=='rejected')return false
+      if(filter!=='all'&&filter!=='active'&&filter!=='rejected'&&s!==filter)return false
+      if(processFilter!=='all'){const stages=getCustomerProcessStages(c);if(!stages.has(processFilter))return false}
+      if(search){const q=search.toLowerCase();if(!c.name?.toLowerCase().includes(q)&&!c.phone?.includes(q)&&!c.address?.toLowerCase().includes(q))return false}
+      return true
+    })
+    if(sortCol){
+      list=[...list].sort((a,b)=>{
+        let va:any,vb:any
+        if(sortCol==='name'){va=a.name||'';vb=b.name||''}
+        else if(sortCol==='address'){va=a.address||'';vb=b.address||''}
+        else if(sortCol==='status'){va=statusLabel(getStatus(a));vb=statusLabel(getStatus(b))}
+        else if(sortCol==='price'){va=parseFloat(a.price_excl_vat)||0;vb=parseFloat(b.price_excl_vat)||0}
+        else if(sortCol==='booked_date'){va=a.booked_date||'';vb=b.booked_date||''}
+        else if(sortCol==='created_at'){va=a.created_at||'';vb=b.created_at||''}
+        else if(sortCol==='services'){va=getServices(a).map((s:string)=>svcLabel(s)).join(', ');vb=getServices(b).map((s:string)=>svcLabel(s)).join(', ')}
+        else if(sortCol==='processteg'){va=Array.from(getCustomerProcessStages(a)).join('');vb=Array.from(getCustomerProcessStages(b)).join('')}
+        else{va='';vb=''}
+        if(typeof va==='number')return sortAsc?va-vb:vb-va
+        return sortAsc?String(va).localeCompare(String(vb),'sv'):String(vb).localeCompare(String(va),'sv')
+      })
     }
-
-    if(search){const q=search.toLowerCase();if(!c.name?.toLowerCase().includes(q)&&!c.phone?.includes(q)&&!c.address?.toLowerCase().includes(q))return false}
-    return true
-  })
+    return list
+  })()
 
   const stats={
     total:customers.length,
@@ -395,6 +618,21 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
     rejected:customers.filter(c=>getStatus(c)==='rejected').length,
     revenue:customers.filter(c=>!c.rejected).reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0),
   }
+
+  /* Dashboard new KPIs */
+  const now2=new Date()
+  const thisMonthStart=new Date(now2.getFullYear(),now2.getMonth(),1).toISOString()
+  const jobsThisMonth=customers.filter(c=>c.created_at&&c.created_at>=thisMonthStart).length
+  const revenueThisMonth=customers.filter(c=>c.created_at&&c.created_at>=thisMonthStart&&!c.rejected).reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0)
+
+  /* Dashboard: upcoming jobs this week */
+  const weekStart=new Date();weekStart.setHours(0,0,0,0)
+  const weekEnd=new Date(weekStart);weekEnd.setDate(weekEnd.getDate()+7)
+  const upcomingJobs=customers.filter(c=>{
+    if(!c.booked_date)return false
+    const d=new Date(c.booked_date)
+    return d>=weekStart&&d<weekEnd
+  }).sort((a,b)=>a.booked_date<b.booked_date?-1:1)
 
   const allItems2025=jobs2025.flatMap(j=>getJob2025Items(j))
   function svc3Group(key:string):'stentvatt'|'altantvatt'|'asfaltstvatt'|'ovrigt'{
@@ -436,8 +674,54 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const modalOverlay:React.CSSProperties={position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:isMobile?'flex-end':'center',justifyContent:'center',zIndex:1000,padding:isMobile?0:20}
   const modalBox=(maxW=900):React.CSSProperties=>({background:C.surface,borderRadius:isMobile?'16px 16px 0 0':12,maxWidth:isMobile?'100%':maxW,width:'100%',maxHeight:isMobile?'95vh':'90vh',overflowY:'auto',boxShadow:'0 20px 40px rgba(0,0,0,0.2)'})
 
+  /* ── Calendar helpers ── */
+  function getCalDays(year:number,month:number){
+    const firstDay=new Date(year,month,1).getDay()
+    const daysInMonth=new Date(year,month+1,0).getDate()
+    const startPad=firstDay===0?6:firstDay-1
+    const cells:({day:number,date:string}|null)[]=[]
+    for(let i=0;i<startPad;i++)cells.push(null)
+    for(let d=1;d<=daysInMonth;d++){
+      const dd=String(d).padStart(2,'0')
+      const mm=String(month+1).padStart(2,'0')
+      cells.push({day:d,date:`${year}-${mm}-${dd}`})
+    }
+    while(cells.length%7!==0)cells.push(null)
+    return cells
+  }
+  const calDays=getCalDays(calYear,calMonth)
+  const MONTH_NAMES=['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December']
+  const DAY_NAMES=['Mån','Tis','Ons','Tor','Fre','Lör','Sön']
+  const todayStr=new Date().toISOString().split('T')[0]
+
+  /* Calendar customers: have booked_date and are NOT "Fakturerad" */
+  const calCustomers=customers.filter(c=>{
+    if(!c.booked_date)return false
+    const p=getProgress(c),svcs=getServices(c)
+    let anyBooked=false,allFakturerad=true
+    for(const s of svcs){
+      const steps=getSteps(s,c.include_fogsand)
+      const cur=p[s]||0
+      const label=steps[cur]?.label||''
+      const bookedIdx=steps.findIndex(st=>st.label==='Bokat')
+      if(cur>=bookedIdx&&bookedIdx>-1)anyBooked=true
+      if(label!=='Fakturerad')allFakturerad=false
+    }
+    return anyBooked&&!allFakturerad
+  })
+
+  function sortCol2(col:string){
+    if(sortCol===col){setSortAsc(!sortAsc)}else{setSortCol(col);setSortAsc(true)}
+  }
+  function sortIcon(col:string){
+    if(sortCol!==col)return <i className="fas fa-sort" style={{opacity:0.3,marginLeft:4}}/>
+    return <i className={`fas fa-sort-${sortAsc?'up':'down'}`} style={{marginLeft:4,color:C.primary}}/>
+  }
+
   return(
     <div style={{display:'flex',height:'100vh',overflow:'hidden',fontFamily:'Inter,system-ui,sans-serif',background:C.bg,color:C.text,width:'100%',position:'relative'}}>
+      {/* Pulsing timer indicator style */}
+      <style>{`@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.5;transform:scale(1.4)}}`}</style>
 
       {isMobile&&(
         <button onClick={()=>setSidebarOpen(!sidebarOpen)} style={{position:'fixed',top:12,left:12,zIndex:1100,width:42,height:42,background:C.sidebar,border:'none',borderRadius:10,color:'white',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 8px rgba(0,0,0,0.35)'}}>
@@ -456,16 +740,28 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
           {([
             ['dashboard',   'fas fa-chart-line',    'Dashboard'],
             ['customers',   'fas fa-users',          'Kunder'],
+            ['kalender',    'fas fa-calendar-alt',   'Kalender'],
             ['new-customer','fas fa-user-plus',      'Ny kund'],
             ['underhall',   'fas fa-sync-alt',       'Årligt underhåll'],
             ['statistik',   'fas fa-chart-bar',      'Statistik'],
             ['arbeten2025', 'fas fa-clipboard-list', 'Arbeten 2025'],
           ] as [string,string,string][]).map(([p,icon,label])=>(
-            <div key={p} onClick={()=>{setPage(p);if(isMobile)setSidebarOpen(false)}} style={{display:'flex',alignItems:'center',gap:12,padding:'16px 24px',cursor:'pointer',borderLeft:`3px solid ${page===p?C.primary:'transparent'}`,background:page===p?'rgba(37,99,235,0.1)':'transparent',color:page===p?'white':C.sidebarText,transition:'all 0.2s',fontSize:14,minHeight:52}}>
-              <i className={icon} style={{width:18,textAlign:'center'}}/><span>{label}</span>
+            <div key={p} onClick={()=>{setPage(p);if(isMobile)setSidebarOpen(false)}} style={{display:'flex',alignItems:'center',gap:12,padding:'16px 24px',cursor:'pointer',borderLeft:`3px solid ${page===p?C.primary:'transparent'}`,background:page===p?'rgba(37,99,235,0.1)':'transparent',color:page===p?'white':C.sidebarText,transition:'all 0.2s',fontSize:14,minHeight:52,position:'relative'}}>
+              <i className={icon} style={{width:18,textAlign:'center'}}/>
+              <span>{label}</span>
+              {p==='customers'&&timerRunning&&(
+                <span style={{width:8,height:8,borderRadius:'50%',background:'#ef4444',display:'inline-block',marginLeft:'auto',animation:'pulse-dot 1s ease-in-out infinite',flexShrink:0}}/>
+              )}
             </div>
           ))}
         </nav>
+        {timerRunning&&(
+          <div style={{margin:'0 12px 8px',padding:'10px 14px',background:'rgba(239,68,68,0.15)',borderRadius:10,border:'1px solid rgba(239,68,68,0.4)'}}>
+            <div style={{fontSize:11,color:'#fca5a5',fontWeight:600,marginBottom:2}}>⏱ Timer aktiv</div>
+            <div style={{fontSize:18,fontWeight:800,color:'#ef4444',fontVariantNumeric:'tabular-nums'}}>{fmtTimer(timerSecs)}</div>
+            <div style={{fontSize:11,color:'#fca5a5',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{timerCustomerName}</div>
+          </div>
+        )}
         <div style={{padding:'16px',borderTop:'1px solid rgba(255,255,255,0.08)',display:'flex',flexDirection:'column',gap:8}}>
           <button onClick={()=>setShowAI(!showAI)} style={{...btn(showAI?C.primary:'rgba(255,255,255,0.1)','white'),justifyContent:'center'}}><i className="fas fa-robot"/> AI-assistent</button>
           <button onClick={()=>setDark(!dark)} style={{...btn('rgba(255,255,255,0.05)','white'),justifyContent:'center'}}><i className={dark?'fas fa-sun':'fas fa-moon'}/>{dark?' Ljust tema':' Mörkt tema'}</button>
@@ -477,14 +773,14 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
       <main style={{flex:1,padding:isMobile?'16px':'32px',paddingTop:isMobile?'66px':'32px',height:'100vh',overflowY:'auto',minWidth:0}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isMobile?16:28,gap:8,flexWrap:'wrap' as const}}>
           <h1 style={{fontSize:isMobile?20:30,fontWeight:700,color:C.text,margin:0}}>
-            {({'dashboard':'Dashboard','customers':'Kunder','new-customer':'Ny kund','underhall':'Årligt underhåll','statistik':'Statistik','arbeten2025':'Arbeten 2025'} as any)[page]}
+            {({'dashboard':'Dashboard','customers':'Kunder','kalender':'Kalender','new-customer':'Ny kund','underhall':'Årligt underhåll','statistik':'Statistik','arbeten2025':'Arbeten 2025'} as any)[page]}
           </h1>
           <button onClick={()=>setPage('new-customer')} style={btn(C.primary)}><i className="fas fa-plus"/>{!isMobile&&' Ny kund'}</button>
         </div>
 
         {/* ── DASHBOARD ── */}
         {page==='dashboard'&&<>
-          <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(6,1fr)',gap:isMobile?10:14,marginBottom:24}}>
+          <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:isMobile?10:14,marginBottom:24}}>
             {([
               ['fas fa-folder-open','Totalt ärenden', stats.total,                                    '#6366f1'],
               ['fas fa-star',       'Nya ärenden',    stats.new,                                      '#f59e0b'],
@@ -492,18 +788,68 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               ['fas fa-check-circle','Stängda',       stats.completed,                                '#10b981'],
               ['fas fa-times-circle','Ej Accepterade',stats.rejected,                                 '#ef4444'],
               ['fas fa-coins',      'Omsättning',     stats.revenue>0?fmtCur(stats.revenue):'0 kr',  '#10b981'],
+              ['fas fa-calendar-check','Jobb denna månad', String(jobsThisMonth),                     '#06b6d4'],
+              ['fas fa-money-bill-wave','Intäkt denna månad', revenueThisMonth>0?fmtCur(revenueThisMonth):'0 kr','#8b5cf6'],
             ] as [string,string,any,string][]).map(([icon,label,val,color])=>(
               <div key={label} style={{background:C.surface,padding:isMobile?'12px 10px':'20px 16px',borderRadius:14,boxShadow:'0 2px 8px rgba(0,0,0,0.08)',display:'flex',alignItems:'center',gap:isMobile?8:14,minWidth:0}}>
                 <div style={{width:isMobile?36:52,height:isMobile?36:52,borderRadius:12,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                   <i className={icon} style={{fontSize:isMobile?16:22,color}}/>
                 </div>
                 <div style={{minWidth:0}}>
-                  <div style={{fontSize:isMobile?14:label==='Omsättning'?16:28,fontWeight:700,color:C.text,lineHeight:1}}>{val}</div>
+                  <div style={{fontSize:isMobile?14:typeof val==='string'&&val.length>6?16:28,fontWeight:700,color:C.text,lineHeight:1}}>{val}</div>
                   <div style={{fontSize:isMobile?10:12,color:C.textSec,marginTop:4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</div>
                 </div>
               </div>
             ))}
           </div>
+
+          {/* Kommande jobb denna vecka */}
+          <div style={{background:C.surface,padding:isMobile?16:24,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',marginBottom:20}}>
+            <h2 style={{fontSize:isMobile?15:18,fontWeight:600,marginBottom:16,color:C.text,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-calendar-week" style={{color:C.primary}}/> Kommande jobb denna vecka</h2>
+            {upcomingJobs.length===0
+              ?<div style={{color:C.textSec,fontSize:14,padding:'12px 0'}}>Inga bokade jobb de kommande 7 dagarna.</div>
+              :<div style={{display:'flex',flexDirection:'column',gap:8}}>
+                {upcomingJobs.map(c=>(
+                  <div key={c.id} onClick={()=>openCustomer(c)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',background:C.bg,borderRadius:8,cursor:'pointer',border:`1px solid ${C.border}`,transition:'border-color 0.2s'}}
+                    onMouseEnter={e=>(e.currentTarget.style.borderColor=C.primary)}
+                    onMouseLeave={e=>(e.currentTarget.style.borderColor=C.border)}>
+                    <div>
+                      <div style={{fontWeight:600,color:C.text,fontSize:14}}>{c.name}</div>
+                      <div style={{fontSize:12,color:C.textSec}}>{c.address} · {getServices(c).map((s:string)=>svcLabel(s)).join(', ')}</div>
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4}}>
+                      <span style={{fontSize:13,fontWeight:700,color:C.primary,whiteSpace:'nowrap'}}>{c.booked_date}</span>
+                      {(parseFloat(c.price_excl_vat)||0)>0&&<span style={{fontSize:12,color:'#10b981',fontWeight:600}}>{fmtCur(parseFloat(c.price_excl_vat))}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            }
+          </div>
+
+          {/* Senaste aktivitet */}
+          <div style={{background:C.surface,padding:isMobile?16:24,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',marginBottom:20}}>
+            <h2 style={{fontSize:isMobile?15:18,fontWeight:600,marginBottom:16,color:C.text,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-history" style={{color:'#f59e0b'}}/> Senaste aktivitet</h2>
+            {recentActivityLogs.length===0
+              ?<div style={{color:C.textSec,fontSize:14}}>Ingen aktivitet ännu.</div>
+              :<div style={{display:'flex',flexDirection:'column',gap:8}}>
+                {recentActivityLogs.map(log=>{
+                  const accentColor=log.log_type==='comment'?C.primary:log.log_type==='status_change'?'#10b981':'#f59e0b'
+                  const cust=customers.find(c=>c.id===log.customer_id)
+                  return(
+                    <div key={log.id} style={{padding:'10px 14px',background:C.bg,borderRadius:8,borderLeft:`3px solid ${accentColor}`,display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                      <div>
+                        {cust&&<div style={{fontSize:12,fontWeight:700,color:C.primary,marginBottom:2,cursor:'pointer'}} onClick={()=>openCustomer(cust)}>{cust.name}</div>}
+                        <div style={{fontSize:13,color:C.text}}>{log.content}</div>
+                      </div>
+                      <div style={{fontSize:11,color:C.textSec,flexShrink:0}}>{fmtDate(log.timestamp)}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            }
+          </div>
+
           <div style={{background:C.surface,padding:isMobile?16:24,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
             <h2 style={{fontSize:isMobile?15:18,fontWeight:600,marginBottom:16,color:C.text}}>Aktiva ärenden</h2>
             <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>
@@ -524,42 +870,127 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                 <button key={f} onClick={()=>setFilter(f)} style={{padding:'8px 14px',border:`2px solid ${filter===f?C.primary:C.border}`,background:filter===f?C.primary:C.surface,color:filter===f?'white':C.text,borderRadius:8,fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:'inherit',minHeight:38}}>{l}</button>
               ))}
             </div>
-
-            {/* SEPARAT PROCESSFILTER */}
             <div style={{width:'100%',height:1,background:C.border,opacity:0.9}}/>
             <div style={{width:'100%',display:'flex',flexDirection:'column',gap:8}}>
-              <div style={{fontSize:12,fontWeight:700,color:C.textSec,letterSpacing:'0.04em',textTransform:'uppercase' as const}}>
-                Ärendeprocess
-              </div>
+              <div style={{fontSize:12,fontWeight:700,color:C.textSec,letterSpacing:'0.04em',textTransform:'uppercase' as const}}>Ärendeprocess</div>
               <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
                 {PROCESS_FILTERS.map(({id,label})=>(
-                  <button
-                    key={id}
-                    onClick={()=>setProcessFilter(id)}
-                    style={{
-                      padding:'8px 14px',
-                      border:`2px solid ${processFilter===id?C.primary:C.border}`,
-                      background:processFilter===id?C.primary:C.surface,
-                      color:processFilter===id?'white':C.text,
-                      borderRadius:8,
-                      fontSize:12,
-                      fontWeight:500,
-                      cursor:'pointer',
-                      fontFamily:'inherit',
-                      minHeight:38
-                    }}
-                  >
-                    {label}
-                  </button>
+                  <button key={id} onClick={()=>setProcessFilter(id)} style={{padding:'8px 14px',border:`2px solid ${processFilter===id?C.primary:C.border}`,background:processFilter===id?C.primary:C.surface,color:processFilter===id?'white':C.text,borderRadius:8,fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:'inherit',minHeight:38}}>{label}</button>
                 ))}
               </div>
+            </div>
+            <div style={{width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap' as const}}>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>setCustView('card')} style={{padding:'7px 14px',border:`2px solid ${custView==='card'?C.primary:C.border}`,background:custView==='card'?C.primary:C.surface,color:custView==='card'?'white':C.text,borderRadius:8,fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',gap:6}}><i className="fas fa-th-large"/> Kortvy</button>
+                <button onClick={()=>setCustView('table')} style={{padding:'7px 14px',border:`2px solid ${custView==='table'?C.primary:C.border}`,background:custView==='table'?C.primary:C.surface,color:custView==='table'?'white':C.text,borderRadius:8,fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',gap:6}}><i className="fas fa-table"/> Tabellvy</button>
+              </div>
+              <button onClick={exportCSV} style={{...btn('#64748b'),fontSize:12}}><i className="fas fa-file-csv"/> Exportera CSV</button>
             </div>
           </div>
 
           {filtered.length===0
             ?<div style={{textAlign:'center',padding:'60px',color:C.textSec}}>Inga ärenden att visa</div>
-            :<div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>{filtered.map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)}/>)}</div>
+            :custView==='card'
+              ?<div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>{filtered.map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)}/>)}</div>
+              :<div style={{background:C.surface,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',overflow:'hidden'}}>
+                <div style={{overflowX:'auto'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                    <thead>
+                      <tr style={{background:C.bg}}>
+                        {([['name','Namn'],['address','Adress'],['services','Tjänster'],['status','Status'],['processteg','Processteg'],['price','Pris'],['booked_date','Bokningsdatum'],['created_at','Skapat']] as [string,string][]).map(([col,lbl])=>(
+                          <th key={col} onClick={()=>sortCol2(col)} style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:C.textSec,letterSpacing:'0.04em',textTransform:'uppercase' as const,cursor:'pointer',userSelect:'none',whiteSpace:'nowrap'}}>
+                            {lbl}{sortIcon(col)}
+                          </th>
+                        ))}
+                        <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,fontWeight:700,color:C.textSec}}>Åtgärder</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((c,idx)=>{
+                        const status=getStatus(c)
+                        const statusColors:Record<string,string>={new:'#f59e0b',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
+                        const stages=Array.from(getCustomerProcessStages(c)).map(s=>PROCESS_FILTERS.find(p=>p.id===s)?.label||s).join(', ')
+                        return(
+                          <tr key={c.id} style={{borderTop:`1px solid ${C.border}`,background:idx%2===0?C.surface:C.bg}}>
+                            <td style={{padding:'10px 14px',fontWeight:600,color:C.text,whiteSpace:'nowrap'}}>{c.name}</td>
+                            <td style={{padding:'10px 14px',color:C.textSec,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</td>
+                            <td style={{padding:'10px 14px',color:C.text}}>{getServices(c).map((s:string)=>svcLabel(s)).join(', ')}</td>
+                            <td style={{padding:'10px 14px'}}>
+                              <span style={{padding:'3px 10px',borderRadius:9999,fontSize:11,fontWeight:600,background:`${statusColors[status]}18`,color:statusColors[status],whiteSpace:'nowrap'}}>{statusLabel(status)}</span>
+                            </td>
+                            <td style={{padding:'10px 14px',color:C.textSec,fontSize:12}}>{stages}</td>
+                            <td style={{padding:'10px 14px',fontWeight:700,color:'#10b981',whiteSpace:'nowrap'}}>{(parseFloat(c.price_excl_vat)||0)>0?fmtCur(parseFloat(c.price_excl_vat)):'-'}</td>
+                            <td style={{padding:'10px 14px',color:C.textSec,whiteSpace:'nowrap'}}>{c.booked_date||'-'}</td>
+                            <td style={{padding:'10px 14px',color:C.textSec,whiteSpace:'nowrap'}}>{c.created_at?new Date(c.created_at).toLocaleDateString('sv-SE'):'-'}</td>
+                            <td style={{padding:'10px 14px',textAlign:'right'}}>
+                              <button onClick={()=>openCustomer(c)} style={{padding:'5px 12px',background:C.primary,color:'white',border:'none',borderRadius:6,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}><i className="fas fa-eye"/></button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
           }
+        </>}
+
+        {/* ── KALENDER ── */}
+        {page==='kalender'&&<>
+          <div style={{background:C.surface,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',padding:isMobile?16:24}}>
+            {/* Header */}
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20,gap:8}}>
+              <button onClick={()=>{let m=calMonth-1,y=calYear;if(m<0){m=11;y--}setCalMonth(m);setCalYear(y)}} style={{...btn(C.bg,C.text),padding:'8px 14px',border:`1px solid ${C.border}`}}><i className="fas fa-chevron-left"/></button>
+              <h2 style={{fontSize:isMobile?17:22,fontWeight:700,color:C.text,margin:0}}>{MONTH_NAMES[calMonth]} {calYear}</h2>
+              <button onClick={()=>{let m=calMonth+1,y=calYear;if(m>11){m=0;y++}setCalMonth(m);setCalYear(y)}} style={{...btn(C.bg,C.text),padding:'8px 14px',border:`1px solid ${C.border}`}}><i className="fas fa-chevron-right"/></button>
+            </div>
+            {/* Day headers */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:4}}>
+              {DAY_NAMES.map(d=>(
+                <div key={d} style={{textAlign:'center',fontSize:11,fontWeight:700,color:C.textSec,padding:'6px 2px',letterSpacing:'0.05em',textTransform:'uppercase' as const}}>{d}</div>
+              ))}
+            </div>
+            {/* Calendar grid */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
+              {calDays.map((cell,i)=>{
+                if(!cell)return <div key={i} style={{minHeight:isMobile?60:100,background:C.bg,borderRadius:6,opacity:0.3}}/>
+                const isToday=cell.date===todayStr
+                const dayJobs=calCustomers.filter(c=>c.booked_date===cell.date)
+                return(
+                  <div key={cell.date} style={{minHeight:isMobile?60:100,background:isToday?`${C.primary}15`:C.bg,borderRadius:6,padding:'4px',border:isToday?`2px solid ${C.primary}`:`1px solid ${C.border}`,overflow:'hidden'}}>
+                    <div style={{fontSize:isMobile?11:13,fontWeight:isToday?800:400,color:isToday?C.primary:C.textSec,marginBottom:3,textAlign:'right',paddingRight:2}}>{cell.day}</div>
+                    <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                      {dayJobs.map(c=>{
+                        const kvmMap=getKvm(c)
+                        const totalKvm=Object.values(kvmMap).reduce((s:number,v:any)=>s+(parseFloat(String(v))||0),0)
+                        return(
+                          <div key={c.id} onClick={()=>openCustomer(c)} title={c.name} style={{background:C.primary,color:'white',borderRadius:4,padding:isMobile?'2px 4px':'3px 6px',fontSize:isMobile?9:11,fontWeight:600,cursor:'pointer',overflow:'hidden',lineHeight:1.3}}>
+                            <div style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
+                            {!isMobile&&<>
+                              <div style={{opacity:0.85,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:10}}>{c.address}</div>
+                              <div style={{opacity:0.85,fontSize:10}}>{getServices(c).map((s:string)=>svcLabel(s)).join(', ')}{totalKvm>0&&` · ${totalKvm}kvm`}</div>
+                            </>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {/* Legend */}
+            <div style={{marginTop:16,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap' as const}}>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <div style={{width:14,height:14,borderRadius:3,background:C.primary}}/>
+                <span style={{fontSize:12,color:C.textSec}}>Bokat jobb</span>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <div style={{width:14,height:14,borderRadius:3,border:`2px solid ${C.primary}`,background:`${C.primary}15`}}/>
+                <span style={{fontSize:12,color:C.textSec}}>Idag</span>
+              </div>
+              <span style={{marginLeft:'auto',fontSize:12,color:C.textSec}}>{calCustomers.length} bokade jobb visas</span>
+            </div>
+          </div>
         </>}
 
         {/* ── NY KUND ── */}
@@ -817,7 +1248,10 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
         <div style={modalOverlay} onClick={e=>{if(e.target===e.currentTarget){setShowModal(false);setCurrent(null)}}}>
           <div style={modalBox(900)}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:isMobile?'16px':'24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:10}}>
-              <h2 style={{fontSize:isMobile?18:22,fontWeight:600,color:C.text}}>{current.name}</h2>
+              <div>
+                <h2 style={{fontSize:isMobile?18:22,fontWeight:600,color:C.text,margin:0}}>{current.name}</h2>
+                {current.booked_date&&<div style={{fontSize:12,color:C.primary,marginTop:2}}><i className="fas fa-calendar-check" style={{marginRight:4}}/>Bokad: {current.booked_date}</div>}
+              </div>
               <button onClick={()=>{setShowModal(false);setCurrent(null)}} style={{width:36,height:36,border:'none',background:C.bg,borderRadius:8,cursor:'pointer',fontSize:18,color:C.text,display:'flex',alignItems:'center',justifyContent:'center'}}><i className="fas fa-times"/></button>
             </div>
             <div style={{padding:isMobile?16:24}}>
@@ -882,14 +1316,59 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                           {cur2<steps.length-1&&<button onClick={()=>moveStep(service,cur2+1)} style={btn(C.primary)}>Nästa <i className="fas fa-arrow-right"/></button>}
                         </div>
                       }
+                      {getSteps(service,current.include_fogsand)[getProgress(current)[service]||0]?.label==='Bokat'&&(
+                        <div style={{marginTop:8,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap' as const}}>
+                          <label style={{fontSize:12,color:C.textSec,fontWeight:500}}>📅 Datum för jobbet:</label>
+                          <input type="date" value={current.booked_date||''} onChange={async e=>{await updateCust(current.id,{booked_date:e.target.value})}} style={{...inp,maxWidth:180,fontSize:13}}/>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
               </div>
 
+              {/* LIVE TIMER */}
+              <div style={{marginBottom:24,background:C.bg,borderRadius:12,padding:isMobile?14:20,border:`2px solid ${timerRunning&&timerCustomerId===current.id?'#ef4444':C.border}`}}>
+                <h3 style={{fontSize:16,fontWeight:600,marginBottom:16,color:C.text,display:'flex',alignItems:'center',gap:8}}>
+                  <i className="fas fa-stopwatch" style={{color:'#ef4444'}}/>
+                  Timer
+                  {timerRunning&&timerCustomerId===current.id&&(
+                    <span style={{marginLeft:'auto',fontSize:22,fontWeight:800,color:'#ef4444',fontVariantNumeric:'tabular-nums'}}>{fmtTimer(timerSecs)}</span>
+                  )}
+                </h3>
+                {timerRunning&&timerCustomerId!==current.id&&(
+                  <div style={{padding:'10px 14px',background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.4)',borderRadius:8,fontSize:13,color:'#92400e',marginBottom:12}}>
+                    <i className="fas fa-info-circle" style={{marginRight:6}}/>Timer körs för en annan kund: <strong>{timerCustomerName}</strong>
+                  </div>
+                )}
+                {(!timerRunning||(timerRunning&&timerCustomerId===current.id))&&(
+                  <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap' as const}}>
+                    <select value={timerSelectMoment} onChange={e=>setTimerSelectMoment(e.target.value)} style={{...inp,flex:'2 1 160px',minWidth:160,cursor:'pointer'}} disabled={timerRunning&&timerCustomerId===current.id}>
+                      <option value="">Välj moment...</option>
+                      {buildMoments(current).map(m=><option key={m} value={m}>{m}</option>)}
+                    </select>
+                    {!timerRunning&&(
+                      <button onClick={()=>{if(!timerSelectMoment)return alert('Välj ett moment');startTimer(current,timerSelectMoment)}} style={btn('#ef4444')}>
+                        <i className="fas fa-play"/> Starta timer
+                      </button>
+                    )}
+                    {timerRunning&&timerCustomerId===current.id&&(
+                      <button onClick={stopTimer} style={btn('#10b981')}>
+                        <i className="fas fa-stop"/> Stoppa &amp; logga
+                      </button>
+                    )}
+                  </div>
+                )}
+                {timerRunning&&timerCustomerId===current.id&&(
+                  <div style={{marginTop:10,fontSize:12,color:C.textSec}}>
+                    Moment: <strong>{timerMoment}</strong> · Starttid: {timerStartTime?new Date(timerStartTime).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'}):''}
+                  </div>
+                )}
+              </div>
+
               {/* LOGGA TID */}
               <div style={{marginBottom:24,background:C.bg,borderRadius:12,padding:isMobile?14:20,border:`1px solid ${C.border}`}}>
-                <h3 style={{fontSize:16,fontWeight:600,marginBottom:16,color:C.text,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-clock" style={{color:C.primary}}/> Logga tid</h3>
+                <h3 style={{fontSize:16,fontWeight:600,marginBottom:16,color:C.text,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-clock" style={{color:C.primary}}/> Logga tid manuellt</h3>
                 <div style={{display:'flex',gap:10,flexWrap:'wrap' as const,marginBottom:16,alignItems:'center'}}>
                   <select value={timeForm.moment} onChange={e=>setTimeForm({...timeForm,moment:e.target.value})} style={{...inp,flex:'2 1 160px',minWidth:160,cursor:'pointer'}}>
                     <option value="">Välj moment...</option>
@@ -914,6 +1393,67 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                   ))}
                 </div>
               </div>
+
+              {/* OFFERT & EKONOMI */}
+              {customerPrice>0&&(
+                <div style={{marginBottom:24,background:C.bg,borderRadius:12,padding:isMobile?14:20,border:`1px solid ${C.border}`}}>
+                  <h3 style={{fontSize:16,fontWeight:600,marginBottom:16,color:C.text,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-file-invoice-dollar" style={{color:'#10b981'}}/> Offert &amp; Ekonomi</h3>
+                  <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:12,marginBottom:20}}>
+                    {([
+                      ['Offererat pris',     fmtCur(customerPrice),                '#3b82f6'],
+                      ['Materialkostnad',    fmtCur(materialTotal),                '#f59e0b'],
+                      ['Vinst',              fmtCur(materialProfit),               materialProfit>=0?'#10b981':'#ef4444'],
+                      ['Vinstmarginal',      `${materialMargin}%`,                 materialMargin>=50?'#10b981':materialMargin>=25?'#f59e0b':'#ef4444'],
+                    ] as [string,string,string][]).map(([label,val,color])=>(
+                      <div key={label} style={{background:C.surface,borderRadius:8,padding:'14px 16px',border:`1px solid ${C.border}`}}>
+                        <div style={{fontSize:12,color:C.textSec,marginBottom:4}}>{label}</div>
+                        <div style={{fontSize:isMobile?15:18,fontWeight:700,color}}>{val}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+                      <span style={{fontSize:14,fontWeight:600,color:C.text}}>Material</span>
+                      <button onClick={()=>setMaterialItems([...materialItems,{name:'',qty:'',unit_price:''}])} style={{...btn(C.bg,C.text),padding:'5px 10px',fontSize:12,border:`1px solid ${C.border}`}}><i className="fas fa-plus"/> Lägg till rad</button>
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                      {materialItems.map((item,idx)=>(
+                        <div key={idx} style={{display:'grid',gridTemplateColumns:'1fr 80px 100px 36px',gap:6,alignItems:'center'}}>
+                          <input placeholder="Materialnamn" value={item.name} onChange={e=>{const n=[...materialItems];n[idx]={...n[idx],name:e.target.value};setMaterialItems(n)}} style={{...inp,fontSize:13,padding:'7px 10px'}}/>
+                          <input type="number" placeholder="Antal" value={item.qty} onChange={e=>{const n=[...materialItems];n[idx]={...n[idx],qty:e.target.value};setMaterialItems(n)}} style={{...inp,fontSize:13,padding:'7px 10px'}}/>
+                          <input type="number" placeholder="À-pris" value={item.unit_price} onChange={e=>{const n=[...materialItems];n[idx]={...n[idx],unit_price:e.target.value};setMaterialItems(n)}} style={{...inp,fontSize:13,padding:'7px 10px'}}/>
+                          <button onClick={()=>setMaterialItems(materialItems.filter((_,i)=>i!==idx))} style={{width:32,height:32,background:'transparent',border:`1px solid rgba(239,68,68,0.4)`,borderRadius:6,color:'#ef4444',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,flexShrink:0}}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Totals row */}
+                  {materialItems.some(i=>i.name.trim())&&(
+                    <div style={{background:C.surface,borderRadius:8,padding:'10px 14px',border:`1px solid ${C.border}`,marginBottom:12}}>
+                      <div style={{fontSize:13,fontWeight:700,color:C.textSec,marginBottom:6}}>Inköpslista</div>
+                      <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                        {materialItems.filter(i=>i.name.trim()).map((item,idx)=>{
+                          const total=(parseFloat(item.qty)||0)*(parseFloat(item.unit_price)||0)
+                          return(
+                            <div key={idx} style={{display:'flex',justifyContent:'space-between',fontSize:13,color:C.text}}>
+                              <span>{item.name}</span>
+                              <span style={{color:C.textSec}}>{item.qty||0} st × {fmtCur(parseFloat(item.unit_price)||0)} = <strong>{fmtCur(total)}</strong></span>
+                            </div>
+                          )
+                        })}
+                        <div style={{borderTop:`1px solid ${C.border}`,marginTop:6,paddingTop:6,display:'flex',justifyContent:'space-between',fontWeight:700,fontSize:14}}>
+                          <span>Total materialkostnad</span>
+                          <span style={{color:'#f59e0b'}}>{fmtCur(materialTotal)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{display:'flex',alignItems:'center',gap:12}}>
+                    <button onClick={saveMaterialItems} disabled={materialSaving} style={{...btn(C.primary),opacity:materialSaving?0.6:1}}><i className="fas fa-save"/> Spara material</button>
+                    {materialMsg&&<span style={{fontSize:13,color:materialMsg.startsWith('✓')?'#10b981':'#ef4444',fontWeight:500}}>{materialMsg}</span>}
+                  </div>
+                </div>
+              )}
 
               {/* AKTIVITETSLOGG */}
               <div style={{marginBottom:24}}>
@@ -984,6 +1524,31 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               </div>
               <div style={{paddingTop:16,borderTop:`1px solid ${C.border}`}}>
                 <button onClick={deleteCust} style={btn('#ef4444')}><i className="fas fa-trash"/> Ta bort ärende</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── BOOKED DATE MODAL ── */}
+      {showBookedDateModal&&bookedDateCustomer&&(
+        <div style={{...modalOverlay,zIndex:1002}} onClick={e=>{if(e.target===e.currentTarget)setShowBookedDateModal(false)}}>
+          <div style={modalBox(440)}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'20px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:10}}>
+              <h2 style={{fontSize:18,fontWeight:600,color:C.text}}>Välj bokningsdatum</h2>
+              <button onClick={()=>setShowBookedDateModal(false)} style={{background:'none',border:'none',color:C.textSec,cursor:'pointer',fontSize:22}}><i className="fas fa-times"/></button>
+            </div>
+            <div style={{padding:24}}>
+              <p style={{fontSize:14,color:C.textSec,marginBottom:16}}>
+                {bookedDateCustomer.name} — {svcLabel(bookedDateService)} är nu bokad. Välj datum för jobbet.
+              </p>
+              <div style={{marginBottom:20}}>
+                <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:8,color:C.text}}>Bokningsdatum</label>
+                <input type="date" value={bookedDateValue} onChange={e=>setBookedDateValue(e.target.value)} style={inp}/>
+              </div>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',flexWrap:'wrap' as const}}>
+                <button onClick={()=>setShowBookedDateModal(false)} style={btn('#64748b')}>Hoppa över</button>
+                <button onClick={saveBookedDate} style={btn(C.primary)}><i className="fas fa-calendar-check"/> Spara datum</button>
               </div>
             </div>
           </div>
@@ -1108,6 +1673,7 @@ function CustomerCard({c,C,onClick}:{c:any,C:any,onClick:()=>void}){
         <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}}>
           <span style={{padding:'4px 12px',borderRadius:9999,fontSize:12,fontWeight:600,background:`${statusColors[status]}18`,color:statusColors[status],whiteSpace:'nowrap'}}>{statusLabel(status)}</span>
           {price>0&&<span style={{fontSize:13,fontWeight:700,color:'#10b981',whiteSpace:'nowrap'}}>{fmtCur(price)}</span>}
+          {c.booked_date&&<span style={{fontSize:11,color:'#3b82f6',whiteSpace:'nowrap'}}><i className="fas fa-calendar-check" style={{marginRight:3}}/>{c.booked_date}</span>}
         </div>
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:12}}>
@@ -1289,7 +1855,6 @@ function StatPage({customers,allLogs,C,isMobile}:any){
 
   return(
     <div>
-
       {/* ══ PANEL 1: Mål + KPI ══ */}
       <div style={{background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',marginBottom:16,overflow:'hidden'}}>
         <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:16}}>

@@ -5,6 +5,12 @@ export interface ServiceProgress {
   [service: string]: number
 }
 
+export interface MaterialItem {
+  name: string
+  qty: number
+  unit_price: number
+}
+
 export interface Customer {
   id: string
   name: string
@@ -22,6 +28,8 @@ export interface Customer {
   status: CustomerStatus
   created_at: string
   updated_at?: string
+  booked_date?: string       // ISO-date for when job is scheduled
+  material_items?: MaterialItem[]  // For quote breakdown
 }
 
 export interface ActivityLog {
