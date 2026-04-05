@@ -145,8 +145,8 @@ function getCustomerProcessStages(c:any):Set<string>{
 }
 
 /* ─── COLOURS ────────────────────────────────────────────────── */
-const LIGHT={bg:'#f8fafc',surface:'#ffffff',border:'#e2e8f0',text:'#1e293b',textSec:'#64748b',primary:'#2563eb',sidebar:'#1e293b',sidebarText:'#cbd5e1',input:'#ffffff',inputBorder:'#e2e8f0'}
-const DARK= {bg:'#0f172a',surface:'#1e293b',border:'#334155',text:'#e2e8f0',textSec:'#94a3b8',primary:'#3b82f6',sidebar:'#0f172a',sidebarText:'#94a3b8',input:'#1e293b',inputBorder:'#334155'}
+const LIGHT={bg:'#f0f4f8',surface:'#ffffff',border:'#e2e8f0',text:'#0f172a',textSec:'#64748b',primary:'#6366f1',sidebar:'#1e1b4b',sidebarText:'#a5b4fc',input:'#ffffff',inputBorder:'#c7d2fe',accent:'#8b5cf6'}
+const DARK= {bg:'#0a0f1e',surface:'#111827',border:'#1f2937',text:'#f1f5f9',textSec:'#94a3b8',primary:'#818cf8',sidebar:'#060b16',sidebarText:'#818cf8',input:'#1f2937',inputBorder:'#374151',accent:'#a78bfa'}
 const EMPTY_UH={name:'',phone:'',email:'',address:'',amount:'',note:''}
 const TODAY=new Date().toISOString().split('T')[0]
 
@@ -238,8 +238,8 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [bookingDateForm, setBookingDateForm] = useState<Record<string,string>>({})
 
   const C=dark?DARK:LIGHT
-  const inp:React.CSSProperties={background:C.input,border:`2px solid ${C.inputBorder}`,borderRadius:8,padding:'8px 12px',color:C.text,fontFamily:'inherit',fontSize:14,width:'100%',boxSizing:'border-box',outline:'none'}
-  const btn=(bg:string,color='white'):React.CSSProperties=>({display:'inline-flex',alignItems:'center',gap:6,padding:'8px 16px',background:bg,color,border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',minHeight:40})
+  const inp:React.CSSProperties={background:C.input,border:`1.5px solid ${C.inputBorder}`,borderRadius:10,padding:'9px 13px',color:C.text,fontFamily:'inherit',fontSize:14,width:'100%',boxSizing:'border-box',outline:'none',transition:'border-color 0.15s'}
+  const btn=(bg:string,color='white'):React.CSSProperties=>({display:'inline-flex',alignItems:'center',gap:6,padding:'8px 18px',background:bg,color,border:'none',borderRadius:10,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',minHeight:40,transition:'all 0.15s',boxShadow:bg!=='transparent'&&!bg.includes('rgba')?'0 1px 3px rgba(0,0,0,0.15)':'none'})
 
   useEffect(()=>{loadCustomers();loadAllLogs();loadRecentActivity();loadContracts();loadJobs2025()},[])
   useEffect(()=>{
@@ -616,7 +616,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
     progress:customers.filter(c=>getStatus(c)==='in_progress').length,
     completed:customers.filter(c=>getStatus(c)==='completed').length,
     rejected:customers.filter(c=>getStatus(c)==='rejected').length,
-    revenue:customers.filter(c=>!c.rejected).reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0),
+    revenue:customers.filter(c=>!c.rejected&&(parseFloat(c.price_excl_vat)||0)>0).reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0),
   }
 
   /* Dashboard new KPIs */
@@ -732,9 +732,16 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
 
       {/* SIDEBAR */}
       <aside style={{width:260,flexShrink:0,background:C.sidebar,color:C.sidebarText,display:'flex',flexDirection:'column',height:'100vh',overflowY:'auto',...(isMobile?{position:'fixed' as const,top:0,left:0,zIndex:1000,transform:sidebarOpen?'translateX(0)':'translateX(-100%)',transition:'transform 0.3s ease'}:{})}}>
-        <div style={{display:'flex',alignItems:'center',gap:12,padding:'32px 24px 28px'}}>
-          <i className="fas fa-tasks" style={{fontSize:22,color:C.primary}}/>
-          <span style={{fontSize:20,fontWeight:700,color:'white'}}>Admin</span>
+        <div style={{padding:'28px 24px 24px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
+            <div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 12px rgba(99,102,241,0.4)'}}>
+              <i className="fas fa-droplet" style={{fontSize:16,color:'white'}}/>
+            </div>
+            <div>
+              <div style={{fontSize:15,fontWeight:800,color:'white',letterSpacing:'-0.3px'}}>HT Admin</div>
+              <div style={{fontSize:10,color:'rgba(165,180,252,0.6)',letterSpacing:'0.05em'}}>YTRENGÖRING</div>
+            </div>
+          </div>
         </div>
         <nav style={{flex:1}}>
           {([
@@ -746,7 +753,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
             ['statistik',   'fas fa-chart-bar',      'Statistik'],
             ['arbeten2025', 'fas fa-clipboard-list', 'Arbeten 2025'],
           ] as [string,string,string][]).map(([p,icon,label])=>(
-            <div key={p} onClick={()=>{setPage(p);if(isMobile)setSidebarOpen(false)}} style={{display:'flex',alignItems:'center',gap:12,padding:'16px 24px',cursor:'pointer',borderLeft:`3px solid ${page===p?C.primary:'transparent'}`,background:page===p?'rgba(37,99,235,0.1)':'transparent',color:page===p?'white':C.sidebarText,transition:'all 0.2s',fontSize:14,minHeight:52,position:'relative'}}>
+            <div key={p} onClick={()=>{setPage(p);if(isMobile)setSidebarOpen(false)}} style={{display:'flex',alignItems:'center',gap:12,padding:'16px 24px',cursor:'pointer',borderLeft:'none',borderRadius:'0 12px 12px 0',marginRight:12,background:page===p?'linear-gradient(90deg,rgba(99,102,241,0.2),rgba(139,92,246,0.1))':'transparent',color:page===p?'white':C.sidebarText,transition:'all 0.2s',fontSize:14,minHeight:52,position:'relative'}}>
               <i className={icon} style={{width:18,textAlign:'center'}}/>
               <span>{label}</span>
               {p==='customers'&&timerRunning&&(
@@ -791,7 +798,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               ['fas fa-calendar-check','Jobb denna månad', String(jobsThisMonth),                     '#06b6d4'],
               ['fas fa-money-bill-wave','Intäkt denna månad', revenueThisMonth>0?fmtCur(revenueThisMonth):'0 kr','#8b5cf6'],
             ] as [string,string,any,string][]).map(([icon,label,val,color])=>(
-              <div key={label} style={{background:C.surface,padding:isMobile?'12px 10px':'20px 16px',borderRadius:14,boxShadow:'0 2px 8px rgba(0,0,0,0.08)',display:'flex',alignItems:'center',gap:isMobile?8:14,minWidth:0}}>
+              <div key={label} style={{background:C.surface,padding:isMobile?'12px 10px':'20px 16px',borderRadius:14,boxShadow:`0 1px 3px rgba(0,0,0,0.06),0 4px 16px rgba(0,0,0,0.04)`,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:isMobile?8:14,minWidth:0}}>
                 <div style={{width:isMobile?36:52,height:isMobile?36:52,borderRadius:12,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                   <i className={icon} style={{fontSize:isMobile?16:22,color}}/>
                 </div>
@@ -1662,7 +1669,7 @@ function CustomerCard({c,C,onClick}:{c:any,C:any,onClick:()=>void}){
   const statusColors:Record<string,string>={new:'#f59e0b',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
   const price=parseFloat(c.price_excl_vat)||0
   return(
-    <div onClick={onClick} style={{background:C.surface,padding:24,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.08)',cursor:'pointer',border:'2px solid transparent',transition:'all 0.2s'}}
+    <div onClick={onClick} style={{background:C.surface,padding:20,borderRadius:16,boxShadow:'0 1px 3px rgba(0,0,0,0.06),0 4px 16px rgba(0,0,0,0.04)',cursor:'pointer',border:`1px solid ${C.border}`,transition:'all 0.2s'}}
       onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor='#2563eb';(e.currentTarget as HTMLElement).style.boxShadow='0 10px 15px -3px rgba(0,0,0,0.1)'}}
       onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor='transparent';(e.currentTarget as HTMLElement).style.boxShadow='0 1px 3px rgba(0,0,0,0.08)'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
@@ -1799,7 +1806,7 @@ function DonutChart({data,C}:{data:{label:string,value:number,color:string}[],C:
 /* ─── STAT PAGE ──────────────────────────────────────────────── */
 function StatPage({customers,allLogs,C,isMobile}:any){
   const GOAL=1_000_000
-  const completedJobs=customers.filter((c:any)=>getStatus(c)==='completed')
+  const completedJobs=customers.filter((c:any)=>!c.rejected&&(parseFloat(c.price_excl_vat)||0)>0&&(getStatus(c)==='completed'||getStatus(c)==='in_progress'))
   const totalRev=completedJobs.reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0)
   const avgRev=completedJobs.length?Math.round(totalRev/completedJobs.length):0
   const timeLogs=allLogs.filter((l:any)=>l.log_type==='time_log'&&l.time_spent)

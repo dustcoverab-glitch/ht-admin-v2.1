@@ -23,14 +23,6 @@ interface Props {
   C?: Colors
 }
 
-const COSTS = {
-  'gpt-4o-mini': { input: 0.0015, output: 0.006 },
-  'gpt-4o':      { input: 0.0263, output: 0.105 },
-}
-function calcCost(model:string, prompt:number, completion:number){
-  const r = COSTS[model as keyof typeof COSTS] ?? COSTS['gpt-4o-mini']
-  return (prompt/1000)*r.input + (completion/1000)*r.output
-}
 
 export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
   const surface  = C?.surface  ?? (dark ? '#1e293b' : '#ffffff')
@@ -47,9 +39,6 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
   ])
   const [input,            setInput]           = useState('')
   const [loading,          setLoading]         = useState(false)
-  const [sessionCost,      setSessionCost]     = useState(0)
-  const [costExpanded,     setCostExpanded]    = useState(false)
-  const [lastRequest,      setLastRequest]     = useState<{cost:number;model:string;prompt:number;completion:number}|null>(null)
   const [pendingImage,     setPendingImage]    = useState<string|null>(null)
   const [pendingImageName, setPendingImageName]= useState<string|null>(null)
 
@@ -127,10 +116,11 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message:   messageText,
+          message: messageText,
+          messages: [{ role: 'user', content: messageText }],
           sessionId: 'admin-session',
-          imageUrl:  pendingImage ?? undefined,
-          hasImage:  !!pendingImage,
+          imageUrl: pendingImage ?? undefined,
+          hasImage: !!pendingImage,
         }),
       })
 
@@ -141,12 +131,7 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
         return
       }
 
-      let msgCost=0
-      if(data.usage){
-        msgCost=calcCost(data.model, data.usage.prompt, data.usage.completion)
-        setLastRequest({cost:msgCost, model:data.model, prompt:data.usage.prompt, completion:data.usage.completion})
-        setSessionCost(prev=>prev+msgCost)
-      }
+      let msgCost=0 // Claude kostar men vi visar inte öre
 
       setMessages(prev=>prev.slice(0,-1).concat({
         role:'assistant',
@@ -230,19 +215,6 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
           <button onClick={sendMessage} disabled={loading||(!input.trim()&&!pendingImage)} style={{width:36,height:36,flexShrink:0,borderRadius:8,background:loading||(!input.trim()&&!pendingImage)?'rgba(201,168,76,0.3)':'linear-gradient(135deg,#C9A84C,#E8C94A)',border:'none',color:loading||(!input.trim()&&!pendingImage)?textSec:'#0B1120',cursor:loading?'not-allowed':'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,boxShadow:(!loading&&(input.trim()||pendingImage))?'0 2px 8px rgba(201,168,76,0.4)':'none'}}>↑</button>
         </div>
         <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}} onChange={handleImageUpload}/>
-        <div style={{marginTop:6}}>
-          <button onClick={()=>setCostExpanded(!costExpanded)} style={{background:'none',border:'none',color:textSec,cursor:'pointer',fontSize:11,padding:0}}>
-            💰 Session: {(sessionCost*100).toFixed(3)} öre {costExpanded?'▲':'▼'}
-          </button>
-          {costExpanded&&lastRequest&&(
-            <div style={{marginTop:4,padding:8,background:bg,border:`1px solid ${border}`,borderRadius:6,fontSize:11,color:textSec}}>
-              <div>Modell: <strong style={{color:textMain}}>{lastRequest.model}</strong></div>
-              <div>Input: {lastRequest.prompt} · Output: {lastRequest.completion} tokens</div>
-              <div>Senast: {(lastRequest.cost*10.5).toFixed(5)} SEK</div>
-              <div>Totalt: <strong style={{color:'#C9A84C'}}>{(sessionCost*10.5).toFixed(4)} SEK</strong></div>
-            </div>
-          )}
-        </div>
       </div>
 
       <style>{`@keyframes aiDot{0%,80%,100%{transform:scale(0.7);opacity:0.4}40%{transform:scale(1.2);opacity:1}}`}</style>
