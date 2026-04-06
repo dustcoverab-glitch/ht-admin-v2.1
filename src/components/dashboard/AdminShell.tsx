@@ -203,7 +203,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [search,setSearch]=useState('')
   const [current,setCurrent]=useState<any>(null)
   const [showModal,setShowModal]=useState(false)
-  const [pdfViewerOpen,setPdfViewerOpen]=useState(false)
+  const [showPdfModal,setShowPdfModal]=useState(false)
   const [showAI,setShowAI]=useState(false)
   const [editMode,setEditMode]=useState(false)
   const [comment,setComment]=useState('')
@@ -1679,7 +1679,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                       <div style={{marginTop:8,display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:`${C.primary}10`,border:`1px solid ${C.primary}30`,borderRadius:8}}>
                         <i className="fas fa-file-pdf" style={{color:'#ef4444',fontSize:14}}/>
                         <span style={{fontSize:12,color:C.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{current.pdf_name}</span>
-                        <button onClick={()=>setPdfViewerOpen(true)} style={{background:'none',border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 10px',color:C.primary,fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+                        <button onClick={()=>setShowPdfModal(true)} style={{background:'none',border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 10px',color:C.primary,fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
                           <i className="fas fa-eye"/> Öppna
                         </button>
                         <button onClick={async()=>{
@@ -2225,8 +2225,8 @@ function DonutChart({data,C}:{data:{label:string,value:number,color:string}[],C:
       </div>
 
       {/* ── PDF VIEWER MODAL ── */}
-      {pdfViewerOpen&&current?.pdf_base64&&(
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:2000,display:'flex',flexDirection:'column'}} onClick={e=>{if(e.target===e.currentTarget)setPdfViewerOpen(false)}}>
+      {showPdfModal&&current?.pdf_base64&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:2000,display:'flex',flexDirection:'column'}} onClick={e=>{if(e.target===e.currentTarget)setShowPdfModal(false)}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 20px',background:'#111',borderBottom:'1px solid #333',flexShrink:0}}>
             <div style={{display:'flex',alignItems:'center',gap:10}}>
               <i className="fas fa-file-pdf" style={{color:'#ef4444',fontSize:16}}/>
@@ -2237,7 +2237,7 @@ function DonutChart({data,C}:{data:{label:string,value:number,color:string}[],C:
                 style={{padding:'6px 14px',background:'transparent',border:'1px solid #444',borderRadius:6,color:'#aaa',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>
                 <i className="fas fa-download"/> Ladda ned
               </button>
-              <button onClick={()=>setPdfViewerOpen(false)}
+              <button onClick={()=>setShowPdfModal(false)}
                 style={{padding:'6px 14px',background:'transparent',border:'1px solid #444',borderRadius:6,color:'#aaa',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>
                 <i className="fas fa-times"/> Stäng
               </button>
