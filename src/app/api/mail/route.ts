@@ -58,7 +58,8 @@ export async function GET(req: NextRequest) {
     const { token, newAccess, newRefresh, newExpiry } = await getToken()
     if (!token) return NextResponse.json({ emails: [], error: 'Not authenticated', authUrl: getAuthUrl() })
 
-    const folder = searchParams.get('folder') === 'sent' ? 'sentItems' : 'inbox'
+    const folderParam = searchParams.get('folder')
+    const folder = folderParam === 'sent' ? 'sentItems' : folderParam === 'drafts' ? 'drafts' : 'inbox'
     const r = await fetch(
       `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages?$top=30&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
       { headers: { Authorization: `Bearer ${token}` } }
@@ -91,6 +92,23 @@ export async function GET(req: NextRequest) {
     if (newAccess) res.cookies.set('ms_access_token', newAccess, { httpOnly: true, secure: true, maxAge: newExpiry, path: '/' })
     if (newRefresh) res.cookies.set('ms_refresh_token', newRefresh, { httpOnly: true, secure: true, maxAge: 60 * 60 * 24 * 30, path: '/' })
     return res
+  }
+
+  if (action === 'saveDraft') {
+    const token = await getToken()
+    if (!token) return NextResponse.json({ success: false, error: 'Not authenticated' })
+    const message = {
+      subject: body.subject,
+      body: { contentType: 'HTML', content: body.body.replace(/\n/g,'<br>') },
+      toRecipients: [{ emailAddress: { address: body.to } }],
+    }
+    const r = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(message)
+    })
+    if (r.ok) return NextResponse.json({ success: true })
+    return NextResponse.json({ success: false })
   }
 
   return NextResponse.json({ error: 'Unknown action' })
@@ -148,6 +166,23 @@ ${bodyLines}
     if (r.status === 202) return NextResponse.json({ success: true })
     const err = await r.json().catch(() => ({}))
     return NextResponse.json({ success: false, error: err.error?.message || r.statusText })
+  }
+
+  if (action === 'saveDraft') {
+    const token = await getToken()
+    if (!token) return NextResponse.json({ success: false, error: 'Not authenticated' })
+    const message = {
+      subject: body.subject,
+      body: { contentType: 'HTML', content: body.body.replace(/\n/g,'<br>') },
+      toRecipients: [{ emailAddress: { address: body.to } }],
+    }
+    const r = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(message)
+    })
+    if (r.ok) return NextResponse.json({ success: true })
+    return NextResponse.json({ success: false })
   }
 
   return NextResponse.json({ error: 'Unknown action' })
