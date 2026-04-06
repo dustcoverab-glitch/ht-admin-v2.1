@@ -236,9 +236,11 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [calAddModal,setCalAddModal]=useState(false)
   const [calAddDate,setCalAddDate]=useState('')
   const [calAddTime,setCalAddTime]=useState('08:00')
+  const [calAddEndTime,setCalAddEndTime]=useState('10:00')
   const [calAddCustomerId,setCalAddCustomerId]=useState('')
   const [calAddService,setCalAddService]=useState('')
   const [calAddStep,setCalAddStep]=useState<number>(0)
+  const [calAddSearch,setCalAddSearch]=useState('')
   /* Feature 2: Timer */
   const [timerSecs,setTimerSecs]=useState(0)
   const [timerRunning,setTimerRunning]=useState(false)
@@ -407,7 +409,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   async function saveCalAdd(){
     const cust=customers.find(c=>c.id===calAddCustomerId)
     if(!cust)return
-    const updateData:any={booked_date:calAddDate,booked_time:calAddTime}
+    const updateData:any={booked_date:calAddDate,booked_time:calAddTime,booked_end_time:calAddEndTime}
     if(calAddStep>0&&calAddService){
       const p={...getProgress(cust)}
       p[calAddService]=calAddStep
@@ -416,10 +418,14 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
     await updateDoc(doc(db,'customers',calAddCustomerId),updateData)
     await loadCustomers()
     setCalAddModal(false)
-    setCalAddCustomerId('')
-    setCalAddService('')
-    setCalAddStep(0)
-    setCalAddTime('08:00')
+    setCalAddCustomerId('');setCalAddSearch('')
+    setCalAddService('');setCalAddStep(0)
+    setCalAddTime('08:00');setCalAddEndTime('10:00')
+  }
+  async function removeFromCalendar(customerId:string){
+    if(!confirm('Ta bort från kalendern?'))return
+    await updateDoc(doc(db,'customers',customerId),{booked_date:'',booked_time:'',booked_end_time:''})
+    await loadCustomers()
   }
 
   /* ── Material items ── */
@@ -1071,20 +1077,25 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                     const svcs=getServices(c)
                     const statusColors:Record<string,string>={new:'#f59e0b',in_progress:C.primary,completed:'#10b981',rejected:'#ef4444'}
                     const s=getStatus(c)
+                    const timeStr=c.booked_time?(c.booked_end_time?`${c.booked_time}–${c.booked_end_time}`:c.booked_time):''
                     return(
-                      <div key={c.id} onClick={()=>openCustomer(c)} style={{background:`${statusColors[s]}15`,border:`1.5px solid ${statusColors[s]}40`,borderLeft:`3px solid ${statusColors[s]}`,borderRadius:8,padding:'6px 8px',cursor:'pointer',transition:'all 0.15s'}}
-                        onMouseEnter={e=>(e.currentTarget.style.background=`${statusColors[s]}25`)}
-                        onMouseLeave={e=>(e.currentTarget.style.background=`${statusColors[s]}15`)}>
-                        {c.booked_time&&<div style={{fontSize:9,color:C.textSec,marginBottom:2,display:'flex',alignItems:'center',gap:3}}><i className="fas fa-clock" style={{fontSize:8}}/>{c.booked_time}</div>}
-                        <div style={{fontSize:isMobile?10:12,fontWeight:700,color:C.text,marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
-                        <div style={{fontSize:10,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</div>
-                        {svcs.length>0&&<div style={{fontSize:9,color:statusColors[s],fontWeight:600,marginTop:2}}>{svcs.map((sv:string)=>svcLabel(sv)).join(', ')}</div>}
-                        {(parseFloat(c.price_excl_vat)||0)>0&&<div style={{fontSize:10,fontWeight:700,color:'#10b981',marginTop:2}}>{fmtCur(parseFloat(c.price_excl_vat))}</div>}
+                      <div key={c.id} style={{background:`${statusColors[s]}15`,border:`1.5px solid ${statusColors[s]}40`,borderLeft:`3px solid ${statusColors[s]}`,borderRadius:8,padding:'6px 8px',transition:'all 0.15s',position:'relative' as const}}>
+                        <div onClick={()=>openCustomer(c)} style={{cursor:'pointer'}}>
+                          {timeStr&&<div style={{fontSize:9,color:C.primary,fontWeight:700,marginBottom:2}}>{timeStr}</div>}
+                          <div style={{fontSize:isMobile?10:12,fontWeight:700,color:C.text,marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
+                          <div style={{fontSize:10,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</div>
+                          {svcs.length>0&&<div style={{fontSize:9,color:statusColors[s],fontWeight:600,marginTop:2}}>{svcs.map((sv:string)=>svcLabel(sv)).join(', ')}</div>}
+                        </div>
+                        <button onClick={e=>{e.stopPropagation();removeFromCalendar(c.id)}}
+                          title="Ta bort från kalender"
+                          style={{position:'absolute',top:4,right:4,width:16,height:16,background:'rgba(239,68,68,0.15)',border:'none',borderRadius:3,color:'#ef4444',cursor:'pointer',fontSize:9,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1,padding:0}}>
+                          ✕
+                        </button>
                       </div>
                     )
                   })
                 }
-                <button onClick={e=>{e.stopPropagation();setCalAddDate(dateStr);setCalAddTime('08:00');setCalAddCustomerId('');setCalAddService('');setCalAddStep(0);setCalAddModal(true)}}
+                <button onClick={e=>{e.stopPropagation();setCalAddDate(dateStr);setCalAddTime('08:00');setCalAddEndTime('10:00');setCalAddCustomerId('');setCalAddSearch('');setCalAddService('');setCalAddStep(0);setCalAddModal(true)}}
                   style={{marginTop:'auto',width:'100%',padding:'3px 0',background:'transparent',border:`1px dashed ${C.border}`,borderRadius:6,color:C.textSec,cursor:'pointer',fontSize:isMobile?9:10,fontFamily:'inherit',transition:'all 0.15s'}}
                   onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.primary;(e.currentTarget as HTMLElement).style.color=C.primary}}
                   onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.border;(e.currentTarget as HTMLElement).style.color=C.textSec}}>
@@ -1549,16 +1560,15 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                     <div style={{fontSize:12,color:C.textSec,marginBottom:10}}>AI läser av PDF:en och fyller i material och priser automatiskt</div>
                     <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' as const}}>
                       <label style={{display:'inline-flex',alignItems:'center',gap:6,padding:'7px 14px',background:C.primary,color:'white',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
-                        <i className="fas fa-upload"/> Välj PDF
+                        <i className="fas fa-file-pdf"/> Välj PDF
                         <input type="file" accept=".pdf,application/pdf" style={{display:'none'}} onChange={async e=>{
                           const file=e.target.files?.[0]
                           if(!file)return
-                          // Konvertera till base64
+                          setMaterialMsg('⏳ Läser PDF...')
                           const reader=new FileReader()
                           reader.onload=async ev=>{
                             const base64=ev.target?.result as string
                             const base64Data=base64.split(',')[1]
-                            // Skicka till dedikerad PDF-route
                             try{
                               const res=await fetch('/api/ai/pdf',{
                                 method:'POST',
@@ -1566,16 +1576,24 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                                 body:JSON.stringify({pdfBase64:base64Data,customerId:current?.id??''})
                               })
                               const data=await res.json()
-                              if(data.material_items?.length>0){
+                              if(data.error){
+                                setMaterialMsg(`❌ ${data.error}`)
+                              } else if(data.material_items?.length>0){
                                 setMaterialItems(data.material_items.map((i:any)=>({name:String(i.name||''),qty:String(i.qty||1),unit_price:String(i.unit_price||0)})))
+                                setMaterialMsg(`✓ Hittade ${data.material_items.length} poster`)
+                                setTimeout(()=>setMaterialMsg(''),4000)
+                              } else {
+                                setMaterialMsg('⚠️ Inga materialposter hittades i PDF:en')
                               }
-                            }catch(err){console.error('PDF extract error:',err)}
+                            }catch(err:any){
+                              setMaterialMsg(`❌ Fel: ${err.message}`)
+                            }
                           }
                           reader.readAsDataURL(file)
                           e.target.value=''
                         }}/>
                       </label>
-                      <span style={{fontSize:11,color:C.textSec}}>PDF läses av med AI och fyller i listan nedan automatiskt</span>
+                      <span style={{fontSize:11,color:C.textSec}}>PDF läses av med AI och fyller i listan nedan</span>
                     </div>
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:12,marginBottom:20}}>
@@ -1710,37 +1728,60 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
         </div>
       )}
 
-      {/* ── BOOKED DATE MODAL ── */}
       {/* ── KALENDER: Lägg till jobb ── */}
       {calAddModal&&(
         <div style={{...modalOverlay,zIndex:1003}} onClick={e=>{if(e.target===e.currentTarget)setCalAddModal(false)}}>
           <div style={modalBox(500)}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'20px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:10}}>
-              <h2 style={{fontSize:18,fontWeight:600,color:C.text}}>Lägg till jobb</h2>
-              <button onClick={()=>setCalAddModal(false)} style={{background:'none',border:'none',color:C.textSec,cursor:'pointer',fontSize:22}}><i className="fas fa-times"/></button>
+              <h2 style={{fontSize:18,fontWeight:600,color:C.text}}>Boka jobb</h2>
+              <button onClick={()=>setCalAddModal(false)} style={{width:32,height:32,background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,color:C.textSec,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
             </div>
             <div style={{padding:24}}>
-              {/* Datum */}
+              {/* Datum + tider på rad */}
               <div style={{marginBottom:16}}>
-                <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Datum</label>
-                <input type="date" value={calAddDate} onChange={e=>setCalAddDate(e.target.value)} style={inp}/>
+                <label style={{display:'block',fontSize:13,fontWeight:600,marginBottom:8,color:C.text}}>Datum & tid</label>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+                  <div>
+                    <div style={{fontSize:11,color:C.textSec,marginBottom:4}}>Datum</div>
+                    <input type="date" value={calAddDate} onChange={e=>setCalAddDate(e.target.value)}
+                      style={{...inp,colorScheme:'dark'}}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,color:C.textSec,marginBottom:4}}>Starttid</div>
+                    <input type="time" value={calAddTime} onChange={e=>setCalAddTime(e.target.value)}
+                      style={{...inp,colorScheme:'dark'}}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,color:C.textSec,marginBottom:4}}>Sluttid</div>
+                    <input type="time" value={calAddEndTime} onChange={e=>setCalAddEndTime(e.target.value)}
+                      style={{...inp,colorScheme:'dark'}}/>
+                  </div>
+                </div>
               </div>
-              {/* Tid */}
+              {/* Kundsök */}
               <div style={{marginBottom:16}}>
-                <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Tid</label>
-                <input type="time" value={calAddTime} onChange={e=>setCalAddTime(e.target.value)} style={inp}/>
+                <label style={{display:'block',fontSize:13,fontWeight:600,marginBottom:8,color:C.text}}>Kund</label>
+                <div style={{display:'flex',alignItems:'center',gap:8,background:C.bg,borderRadius:8,padding:'8px 12px',border:`1px solid ${C.border}`,marginBottom:8}}>
+                  <i className="fas fa-search" style={{color:C.textSec,fontSize:12}}/>
+                  <input value={calAddSearch} onChange={e=>{setCalAddSearch(e.target.value);setCalAddCustomerId('');setCalAddService('');setCalAddStep(0)}}
+                    placeholder="Sök kund..." style={{border:'none',background:'transparent',outline:'none',flex:1,color:C.text,fontSize:13,fontFamily:'inherit'}}/>
+                </div>
+                {calAddSearch&&(
+                  <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,maxHeight:180,overflowY:'auto'}}>
+                    {customers.filter(c=>c.name.toLowerCase().includes(calAddSearch.toLowerCase())||c.address?.toLowerCase().includes(calAddSearch.toLowerCase())).slice(0,8).map(c=>(
+                      <div key={c.id} onClick={()=>{setCalAddCustomerId(c.id);setCalAddSearch(c.name);setCalAddService('');setCalAddStep(0)}}
+                        style={{padding:'10px 14px',cursor:'pointer',borderBottom:`1px solid ${C.border}`,display:'flex',flexDirection:'column',gap:2,transition:'background 0.1s'}}
+                        onMouseEnter={e=>(e.currentTarget.style.background=`${C.primary}15`)}
+                        onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
+                        <span style={{fontSize:13,fontWeight:600,color:C.text}}>{c.name}</span>
+                        <span style={{fontSize:11,color:C.textSec}}>{c.address}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {calAddCustomerId&&<div style={{marginTop:6,padding:'6px 10px',background:`${C.primary}12`,borderRadius:6,fontSize:12,color:C.primary,fontWeight:600}}>✓ {customers.find(c=>c.id===calAddCustomerId)?.name}</div>}
               </div>
-              {/* Kund */}
-              <div style={{marginBottom:16}}>
-                <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Kund</label>
-                <select value={calAddCustomerId} onChange={e=>{setCalAddCustomerId(e.target.value);setCalAddService('');setCalAddStep(0)}} style={inp}>
-                  <option value="">— Välj kund —</option>
-                  {[...customers].sort((a,b)=>(a.name||'').localeCompare(b.name||'','sv')).map(c=>(
-                    <option key={c.id} value={c.id}>{c.name} – {c.address}</option>
-                  ))}
-                </select>
-              </div>
-              {/* Tjänst (om kund vald) */}
+              {/* Tjänst */}
               {calAddCustomerId&&(()=>{
                 const cust=customers.find(c=>c.id===calAddCustomerId)
                 if(!cust)return null
@@ -1748,37 +1789,40 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                 if(!svcs.length)return null
                 return(
                   <div style={{marginBottom:16}}>
-                    <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Tjänst</label>
-                    <select value={calAddService} onChange={e=>{setCalAddService(e.target.value);setCalAddStep(0)}} style={inp}>
-                      <option value="">— Välj tjänst (valfritt) —</option>
+                    <label style={{display:'block',fontSize:13,fontWeight:600,marginBottom:8,color:C.text}}>Tjänst</label>
+                    <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
                       {svcs.map((s:string)=>(
-                        <option key={s} value={s}>{svcLabel(s)}</option>
+                        <button key={s} onClick={()=>{setCalAddService(s===calAddService?'':s);setCalAddStep(0)}}
+                          style={{padding:'6px 14px',borderRadius:9999,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',border:`1.5px solid ${calAddService===s?C.primary:C.border}`,background:calAddService===s?C.primary:'transparent',color:calAddService===s?'white':C.text,transition:'all 0.15s'}}>
+                          {svcLabel(s)}
+                        </button>
                       ))}
-                    </select>
+                    </div>
                   </div>
                 )
               })()}
-              {/* Processteg (om tjänst vald) */}
+              {/* Processteg */}
               {calAddCustomerId&&calAddService&&(()=>{
                 const cust=customers.find(c=>c.id===calAddCustomerId)
                 if(!cust)return null
                 const steps=getSteps(calAddService,cust.include_fogsand)
+                const curStep=getProgress(cust)[calAddService]||0
                 if(!steps.length)return null
                 return(
                   <div style={{marginBottom:16}}>
-                    <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Uppdatera processteg (valfritt)</label>
+                    <label style={{display:'block',fontSize:13,fontWeight:600,marginBottom:8,color:C.text}}>Processteg <span style={{fontSize:11,color:C.textSec,fontWeight:400}}>(nu: {steps[curStep]?.label})</span></label>
                     <select value={calAddStep} onChange={e=>setCalAddStep(Number(e.target.value))} style={inp}>
                       <option value={0}>— Ändra ej —</option>
-                      {steps.filter(st=>st.id>0).map(st=>(
+                      {steps.map(st=>(
                         <option key={st.id} value={st.id}>{st.label}</option>
                       ))}
                     </select>
                   </div>
                 )
               })()}
-              <div style={{display:'flex',gap:10,justifyContent:'flex-end',flexWrap:'wrap' as const}}>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',flexWrap:'wrap' as const,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
                 <button onClick={()=>setCalAddModal(false)} style={btn('#64748b')}>Avbryt</button>
-                <button onClick={saveCalAdd} disabled={!calAddCustomerId||!calAddDate} style={btn((!calAddCustomerId||!calAddDate)?'#64748b':C.primary)}><i className="fas fa-calendar-plus"/> Spara jobb</button>
+                <button onClick={saveCalAdd} disabled={!calAddCustomerId||!calAddDate} style={{...btn((!calAddCustomerId||!calAddDate)?'#333':C.primary),opacity:(!calAddCustomerId||!calAddDate)?0.5:1}}><i className="fas fa-calendar-plus"/> Spara</button>
               </div>
             </div>
           </div>

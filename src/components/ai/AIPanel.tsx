@@ -22,12 +22,11 @@ interface Props {
 }
 
 const QUICK_ACTIONS = [
-  { label: '📋 Visa aktiva kunder', msg: 'Visa alla aktiva kunder' },
-  { label: '📍 Var är vi i processen?', msg: 'Vilket processteg är vi på för alla aktiva kunder?' },
-  { label: '⏱️ Logga tid', msg: 'Logga tid — vilken kund och hur länge?' },
-  { label: '➕ Ny kund', msg: 'Skapa en ny kund' },
-  { label: '📊 Statistik', msg: 'Visa statistik och omsättning' },
-  { label: '📅 Kommande jobb', msg: 'Visa alla bokade jobb den här veckan' },
+  { label: '➕ Skapa ny kund', msg: 'Jag vill skapa en ny kund' },
+  { label: '📅 Kommande jobb denna vecka', msg: 'Visa alla bokade jobb den här veckan' },
+  { label: '📊 Omsättning & statistik', msg: 'Visa omsättning och statistik' },
+  { label: '⏱️ Logga tid på ett jobb', msg: 'Hjälp mig logga tid på ett jobb' },
+  { label: '🔍 Sök bland kunder', msg: 'Sök bland kunder' },
 ]
 
 export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
