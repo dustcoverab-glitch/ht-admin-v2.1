@@ -2259,7 +2259,7 @@ function DonutChart({data,C}:{data:{label:string,value:number,color:string}[],C:
 
 /* ─── STAT PAGE ──────────────────────────────────────────────── */
 function StatPage({customers,allLogs,C,isMobile}:any){
-  const GOAL=2_500_000
+  const GOAL=2500000
   // Fakturerade = alla tjänster nått sista steget (Fakturerad)
   const invoicedJobs=customers.filter((c:any)=>{
     if(c.rejected)return false
