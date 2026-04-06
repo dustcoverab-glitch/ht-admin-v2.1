@@ -902,7 +902,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               ?<div style={{color:C.textSec,fontSize:14}}>Ingen aktivitet ännu.</div>
               :<div style={{display:'flex',flexDirection:'column',gap:8}}>
                 {recentActivityLogs.map(log=>{
-                  const accentColor=log.log_type==='comment'?C.primary:log.log_type==='status_change'?'#10b981':'#f59e0b'
+                  const accentColor=log.log_type==='comment'?C.primary:log.log_type==='status_change'?'#10b981':'#6366f1'
                   const cust=customers.find(c=>c.id===log.customer_id)
                   return(
                     <div key={log.id} style={{padding:'10px 14px',background:`${accentColor}08`,borderRadius:8,border:`1px solid ${accentColor}25`,borderLeft:`3px solid ${accentColor}`,display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
@@ -1046,15 +1046,15 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
       {/* Veckokalender */}
       <div style={{background:C.surface,borderRadius:16,border:`1px solid ${C.border}`,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
         {/* Dag-headers */}
-        <div style={{display:'grid',gridTemplateColumns:isMobile?'60px repeat(7,1fr)':'80px repeat(7,1fr)',borderBottom:`1px solid ${C.border}`}}>
-          <div style={{padding:'12px 8px',background:C.bg,borderRight:`1px solid ${C.border}`}}/>
+        <div style={{display:'grid',gridTemplateColumns:'36px repeat(7,1fr)',borderBottom:`1px solid ${C.border}`}}>
+          <div style={{padding:'12px 4px',background:C.bg,borderRight:`1px solid ${C.border}`}}/>
           {weekDays.map((d,i)=>{
             const dateStr=d.toISOString().split('T')[0]
             const isToday=dateStr===todayStr
             return(
-              <div key={i} style={{padding:'12px 8px',textAlign:'center',background:isToday?`${C.primary}10`:C.bg,borderRight:i<6?`1px solid ${C.border}`:'none'}}>
-                <div style={{fontSize:isMobile?10:12,fontWeight:600,color:C.textSec,marginBottom:4}}>{isMobile?DAY_SHORT[i]:DAY_NAMES[i]}</div>
-                <div style={{width:30,height:30,borderRadius:'50%',background:isToday?C.primary:'transparent',color:isToday?'white':C.text,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto',fontSize:14,fontWeight:isToday?700:400}}>{d.getDate()}</div>
+              <div key={i} style={{padding:'8px 4px',textAlign:'center',background:isToday?`${C.primary}10`:C.bg,borderRight:i<6?`1px solid ${C.border}`:'none'}}>
+                <div style={{fontSize:isMobile?9:11,fontWeight:600,color:C.textSec,marginBottom:3}}>{isMobile?DAY_SHORT[i]:DAY_NAMES[i]}</div>
+                <div style={{width:26,height:26,borderRadius:'50%',background:isToday?C.primary:'transparent',color:isToday?'white':C.text,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto',fontSize:13,fontWeight:isToday?700:400}}>{d.getDate()}</div>
               </div>
             )
           })}
@@ -1682,7 +1682,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                     ?<div style={{textAlign:'center',padding:20,color:C.textSec}}>Ingen aktivitet ännu</div>
                     :logs.map(log=>{
                       const isEditing=editLogId===log.id
-                      const accentColor=log.log_type==='comment'?C.primary:log.log_type==='status_change'?'#10b981':'#f59e0b'
+                      const accentColor=log.log_type==='comment'?C.primary:log.log_type==='status_change'?'#10b981':'#6366f1'
                       return(
                         <div key={log.id} style={{padding:'10px 14px',background:`${accentColor}08`,borderRadius:8,border:`1px solid ${accentColor}25`,borderLeft:`3px solid ${accentColor}`}}>
                           <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,gap:8}}>
@@ -2156,8 +2156,10 @@ function StatPage({customers,allLogs,C,isMobile}:any){
   const totalKvm=completedJobs.reduce((s:number,c:any)=>{const kvm=getKvm(c);return s+Object.values(kvm).reduce((sk:number,v:any)=>sk+(parseFloat(String(v))||0),0)},0)
   const goalPct=Math.min(100,Math.round((totalRev/GOAL)*100))
   const svcColors:Record<string,string>={stentvatt:'#3b82f6',altantvatt:'#10b981',asfaltstvatt:'#f59e0b',stentvatt_no_fogsand:'#8b5cf6',betongtvatt:'#f97316'}
+  // svcRev/svcCount baseras på ALLA aktiva jobb (för att staplar ska visas)
+  const allActiveJobs=customers.filter((c:any)=>!c.rejected&&(parseFloat(c.price_excl_vat)||0)>0)
   const svcRev:Record<string,number>={},svcTime:Record<string,number>={},svcCount:Record<string,number>={}
-  completedJobs.forEach((c:any)=>{
+  allActiveJobs.forEach((c:any)=>{
     const svcs=getServices(c),rev=parseFloat(c.price_excl_vat)||0,perSvc=svcs.length?rev/svcs.length:0
     svcs.forEach((s:string)=>{svcRev[s]=(svcRev[s]||0)+perSvc;svcCount[s]=(svcCount[s]||0)+1})
   })
@@ -2167,9 +2169,9 @@ function StatPage({customers,allLogs,C,isMobile}:any){
   })
   const donutData=Object.entries(svcCount).map(([key,val])=>({label:svcLabel(key),value:val as number,color:svcColors[key]||'#94a3b8'}))
   const kvmBySvc:Record<string,number>={}
-  completedJobs.forEach((c:any)=>{const kvm=getKvm(c);getServices(c).forEach((s:string)=>{kvmBySvc[s]=(kvmBySvc[s]||0)+(parseFloat(String(kvm[s]))||0)})})
+  allActiveJobs.forEach((c:any)=>{const kvm=getKvm(c);getServices(c).forEach((s:string)=>{kvmBySvc[s]=(kvmBySvc[s]||0)+(parseFloat(String(kvm[s]))||0)})})
   const maxKvm=Math.max(...Object.values(kvmBySvc),1)
-  const top5=completedJobs.map((c:any)=>{const m=custMinsCompleted[c.id]||0;const r=parseFloat(c.price_excl_vat)||0;return{name:c.name,kr_h:m>0?Math.round(r/(m/60)):0,mins:m}}).filter((x:any)=>x.kr_h>0).sort((a:any,b:any)=>b.kr_h-a.kr_h).slice(0,5)
+  const top5=invoicedJobs.map((c:any)=>{const m=custMinsCompleted[c.id]||0;const r=parseFloat(c.price_excl_vat)||0;return{name:c.name,kr_h:m>0?Math.round(r/(m/60)):0,mins:m}}).filter((x:any)=>x.kr_h>0).sort((a:any,b:any)=>b.kr_h-a.kr_h).slice(0,5)
   const medals=['🥇','🥈','🥉','4','5']
   const cols=isMobile?'repeat(2,1fr)':'repeat(4,1fr)'
   const kpiRow1:[string,string,string,string][]=[
@@ -2377,9 +2379,11 @@ function StatPage({customers,allLogs,C,isMobile}:any){
           <div style={{padding:'16px 20px'}}>
             {(()=>{
               const months=['Jan','Feb','Mar','Apr','Maj','Jun','Jul','Aug','Sep','Okt','Nov','Dec']
+              // Månadsdiagram: visa ALL omsättning (aktiva + stängda) för att ge bild av var pengarna är
+              const allRevenueJobs=customers.filter((c:any)=>!c.rejected&&(parseFloat(c.price_excl_vat)||0)>0)
               const monthRev=months.map((_,i)=>{
                 const m=i+1
-                return completedJobs.filter((c:any)=>{
+                return allRevenueJobs.filter((c:any)=>{
                   const d=c.completed_at?new Date(c.completed_at):c.created_at?new Date(c.created_at):null
                   return d&&d.getMonth()+1===m
                 }).reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0)
