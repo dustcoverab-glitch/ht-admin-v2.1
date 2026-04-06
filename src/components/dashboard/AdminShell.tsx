@@ -2674,6 +2674,7 @@ function StatPage({customers,allLogs,C,isMobile}:any){
         </div>
       </div>
 
+
       {/* ── PDF VIEWER MODAL ── */}
       {pdfViewerOpen&&current?.pdf_base64&&(
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:2000,display:'flex',flexDirection:'column'}} onClick={e=>{if(e.target===e.currentTarget)setPdfViewerOpen(false)}}>
