@@ -1108,6 +1108,12 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                             {heightPx>HOUR_H&&<div style={{fontSize:9,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</div>}
                             {heightPx>HOUR_H&&svcs.length>0&&<div style={{fontSize:8,color:color,fontWeight:600,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{svcs.map((sv:string)=>svcLabel(sv)).join(', ')}</div>}
                           </div>
+                          {/* Redigera-knapp */}
+                          <button onClick={e=>{e.stopPropagation();setCalAddDate(c.booked_date||dateStr);setCalAddTime(c.booked_time||'08:00');setCalAddEndTime(c.booked_end_time||'10:00');setCalAddCustomerId(c.id);setCalAddSearch(c.name);setCalAddService(getServices(c)[0]||'');setCalAddStep(0);setCalAddModal(true)}}
+                            title="Redigera bokning"
+                            style={{position:'absolute',bottom:2,right:18,width:14,height:14,background:`${color}25`,border:'none',borderRadius:3,color:color,cursor:'pointer',fontSize:8,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1,padding:0,zIndex:2}}>
+                            ✏
+                          </button>
                           <button onClick={e=>{e.stopPropagation();removeFromCalendar(c.id)}}
                             title="Ta bort från kalender"
                             style={{position:'absolute',top:2,right:2,width:14,height:14,background:'rgba(239,68,68,0.15)',border:'none',borderRadius:3,color:'#ef4444',cursor:'pointer',fontSize:8,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1,padding:0,zIndex:2}}>
@@ -1508,7 +1514,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                   )}
                 </h3>
                 {timerRunning&&timerCustomerId!==current.id&&(
-                  <div style={{padding:'10px 14px',background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.4)',borderRadius:8,fontSize:13,color:'#92400e',marginBottom:12}}>
+                  <div style={{padding:'10px 14px',background:'rgba(59,130,246,0.08)',border:'1px solid rgba(59,130,246,0.2)',borderRadius:8,fontSize:13,color:C.primary,marginBottom:12}}>
                     <i className="fas fa-info-circle" style={{marginRight:6}}/>Timer körs för en annan kund: <strong>{timerCustomerName}</strong>
                   </div>
                 )}
@@ -1996,7 +2002,7 @@ function CustomerCard({c,C,onClick}:{c:any,C:any,onClick:()=>void}){
         <div style={{display:'flex',alignItems:'center',gap:8,fontSize:14,color:C.textSec}}><PhoneIcon size={16} color={C.primary}/>{c.phone}</div>
         <div style={{display:'flex',alignItems:'center',gap:8,fontSize:14,color:C.textSec}}><MapPinIcon size={16} color={C.primary}/>{c.address}</div>
       </div>
-      {c.note&&<div style={{fontSize:12,color:C.text,background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.3)',padding:'6px 10px',borderRadius:6,marginBottom:12}}>📝 {c.note}</div>}
+      {c.note&&<div style={{fontSize:12,color:C.text,background:'rgba(99,102,241,0.08)',border:'1px solid rgba(99,102,241,0.2)',padding:'6px 10px',borderRadius:6,marginBottom:12}}>📝 {c.note}</div>}
       <div style={{paddingTop:12,borderTop:`1px solid ${C.border}`}}>
         <div style={{fontSize:12,color:C.textSec,marginBottom:6}}>Framsteg: {prog}%</div>
         <div style={{height:6,background:C.bg,borderRadius:9999,overflow:'hidden'}}>
