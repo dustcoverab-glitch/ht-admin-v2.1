@@ -203,6 +203,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [search,setSearch]=useState('')
   const [current,setCurrent]=useState<any>(null)
   const [showModal,setShowModal]=useState(false)
+  const [pdfViewerOpen,setPdfViewerOpen]=useState(false)
   const [showAI,setShowAI]=useState(false)
   const [editMode,setEditMode]=useState(false)
   const [comment,setComment]=useState('')
@@ -1608,10 +1609,11 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                                 setMaterialMsg(`❌ ${data.error}`)
                               } else {
                                 // Sätt material-poster
-                                if(data.material_items?.length>0){
-                                  setMaterialItems(data.material_items.map((i:any)=>({name:String(i.name||''),qty:String(i.qty||1),unit_price:String(i.unit_price||0)})))
-                                }
-                                // Spara PDF + pris på kunden
+                                const parsedItems=data.material_items?.length>0
+                                  ?data.material_items.map((i:any)=>({name:String(i.name||''),qty:String(i.qty||1),unit_price:String(i.unit_price||0)}))
+                                  :[]
+                                if(parsedItems.length>0) setMaterialItems(parsedItems)
+                                // Spara PDF + pris + material på kunden
                                 if(current?.id){
                                   const {updateDoc,doc:fsDoc}=await import('firebase/firestore')
                                   const {db:fsDb}=await import('@/lib/firebase')
@@ -1623,16 +1625,23 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                                   if(data.total_price_excl_vat&&data.total_price_excl_vat>0){
                                     updateData.price_excl_vat=String(data.total_price_excl_vat)
                                   }
+                                  // Spara material direkt
+                                  if(parsedItems.length>0){
+                                    updateData.material_items=parsedItems.map((i:any)=>({
+                                      name:i.name,qty:parseFloat(i.qty)||1,unit_price:parseFloat(i.unit_price)||0
+                                    }))
+                                  }
                                   await updateDoc(fsDoc(fsDb,'customers',current.id),updateData)
                                   setCurrent((p:any)=>({
                                     ...p,
                                     pdf_name:file.name,
                                     pdf_base64:base64Data,
                                     pdf_uploaded_at:updateData.pdf_uploaded_at,
-                                    ...(updateData.price_excl_vat?{price_excl_vat:updateData.price_excl_vat}:{})
+                                    ...(updateData.price_excl_vat?{price_excl_vat:updateData.price_excl_vat}:{}),
+                                    ...(parsedItems.length>0?{material_items:updateData.material_items}:{})
                                   }))
                                   const priceStr=data.total_price_excl_vat>0?` · pris ${data.total_price_excl_vat.toLocaleString('sv')} kr`:''
-                                  setMaterialMsg(`✓ PDF sparad · ${data.material_items?.length||0} material${priceStr}`)
+                                  setMaterialMsg(`✓ PDF sparad · ${parsedItems.length} material${priceStr}`)
                                 }
                               }
                             }catch(err:any){
@@ -1650,13 +1659,8 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                       <div style={{marginTop:8,display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:`${C.primary}10`,border:`1px solid ${C.primary}30`,borderRadius:8}}>
                         <i className="fas fa-file-pdf" style={{color:'#ef4444',fontSize:14}}/>
                         <span style={{fontSize:12,color:C.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{current.pdf_name}</span>
-                        <button onClick={()=>{
-                          const link=document.createElement('a')
-                          link.href=`data:application/pdf;base64,${current.pdf_base64}`
-                          link.download=current.pdf_name
-                          link.click()
-                        }} style={{background:'none',border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 10px',color:C.primary,fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
-                          <i className="fas fa-download"/> Öppna
+                        <button onClick={()=>setPdfViewerOpen(true)} style={{background:'none',border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 10px',color:C.primary,fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+                          <i className="fas fa-eye"/> Öppna
                         </button>
                       </div>
                     )}
@@ -2607,6 +2611,35 @@ function StatPage({customers,allLogs,C,isMobile}:any){
           ))}
         </div>
       </div>
+
+      {/* ── PDF VIEWER MODAL ── */}
+      {pdfViewerOpen&&current?.pdf_base64&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:2000,display:'flex',flexDirection:'column'}} onClick={e=>{if(e.target===e.currentTarget)setPdfViewerOpen(false)}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 20px',background:'#111',borderBottom:'1px solid #333',flexShrink:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <i className="fas fa-file-pdf" style={{color:'#ef4444',fontSize:16}}/>
+              <span style={{fontSize:14,fontWeight:600,color:'#ededed'}}>{current.pdf_name}</span>
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>{const a=document.createElement('a');a.href=`data:application/pdf;base64,${current.pdf_base64}`;a.download=current.pdf_name;a.click()}}
+                style={{padding:'6px 14px',background:'transparent',border:'1px solid #444',borderRadius:6,color:'#aaa',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>
+                <i className="fas fa-download"/> Ladda ned
+              </button>
+              <button onClick={()=>setPdfViewerOpen(false)}
+                style={{padding:'6px 14px',background:'transparent',border:'1px solid #444',borderRadius:6,color:'#aaa',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>
+                <i className="fas fa-times"/> Stäng
+              </button>
+            </div>
+          </div>
+          <div style={{flex:1,overflow:'hidden'}}>
+            <iframe
+              src={`data:application/pdf;base64,${current.pdf_base64}`}
+              style={{width:'100%',height:'100%',border:'none'}}
+              title={current.pdf_name}
+            />
+          </div>
+        </div>
+      )}
 
     </div>
   )
