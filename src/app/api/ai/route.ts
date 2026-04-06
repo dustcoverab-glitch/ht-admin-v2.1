@@ -416,7 +416,7 @@ ${memory}`
     // Agentic loop
     for (let round = 0; round < 6; round++) {
       const response = await anthropic.messages.create({
-        model: 'claude-opus-4-6',
+        model: 'claude-opus-4-5-20251101',
         max_tokens: 2048,
         system: systemPrompt,
         tools,
@@ -459,7 +459,7 @@ ${memory}`
       .filter(m => m.content.trim().length > 0 && m.content.length < 5000)
     )
 
-    return NextResponse.json({ reply, actions, model: 'claude-opus-4-6', usage: { prompt: totalInput, completion: totalOutput } })
+    return NextResponse.json({ reply, actions, model: 'claude-opus-4-5-20251101', usage: { prompt: totalInput, completion: totalOutput } })
   } catch (err: any) {
     console.error('[AI Route Error]', err)
     return NextResponse.json({ error: err.message }, { status: 500 })

@@ -1445,7 +1445,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                       </div>
                     ))}
                   </div>
-                  {current.note&&<div style={{marginTop:12,padding:'10px 14px',background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.35)',borderLeft:'3px solid #f59e0b',borderRadius:8,fontSize:14,color:C.text}}>📝 {current.note}</div>}
+                  {current.note&&<div style={{marginTop:12,padding:'10px 14px',background:'rgba(99,102,241,0.08)',border:'1px solid rgba(99,102,241,0.2)',borderLeft:'3px solid #6366f1',borderRadius:8,fontSize:14,color:C.text}}>📝 {current.note}</div>}
                   {current.rejected&&<div style={{marginTop:12,padding:'10px 14px',background:'rgba(239,68,68,0.1)',borderLeft:'3px solid #ef4444',borderRadius:8,fontSize:14,color:'#ef4444',fontWeight:600}}><i className="fas fa-times-circle"/> Offert nekad</div>}
                 </div>
                 :<EditForm current={current} C={C} inp={inp} btn={btn} onSave={async(data:any)=>{await updateCust(current.id,data);setEditMode(false)}} onCancel={()=>setEditMode(false)}/>
@@ -1926,7 +1926,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                   </div>
                 ))}
               </div>
-              {uhCurrent.note&&<div style={{marginBottom:16,padding:'10px 14px',background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.35)',borderLeft:'3px solid #f59e0b',borderRadius:8,fontSize:14,color:C.text}}>📝 {uhCurrent.note}</div>}
+              {uhCurrent.note&&<div style={{marginBottom:16,padding:'10px 14px',background:'rgba(99,102,241,0.08)',border:'1px solid rgba(99,102,241,0.2)',borderLeft:'3px solid #6366f1',borderRadius:8,fontSize:14,color:C.text}}>📝 {uhCurrent.note}</div>}
               <div style={{display:'flex',gap:10,flexWrap:'wrap' as const,paddingTop:16,borderTop:`1px solid ${C.border}`}}>
                 <button onClick={async()=>{await toggleDone(uhCurrent.id);setUhDetailModal(false)}} style={btn(uhCurrent.done?'#64748b':'#10b981')}><i className={uhCurrent.done?'fas fa-undo':'fas fa-check-circle'}/>{uhCurrent.done?' Ångra genomförd':' Markera genomförd'}</button>
                 <button onClick={()=>{setUhDetailModal(false);openUhEdit(uhCurrent)}} style={btn('#64748b')}><i className="fas fa-edit"/> Redigera</button>
