@@ -188,6 +188,17 @@ const tools: Anthropic.Tool[] = [
       required: ['customer_id', 'confirmed'],
     },
   },
+  {
+    name: 'get_customer_status',
+    description: 'Hämta fullständig processtatus för en namngiven kund. Returnerar service_progress (nuvarande steg per tjänst) och service_kvm. ANVÄND ALLTID detta tool när användaren frågar var en specifik kund är i processen.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        customer_id: { type: 'string', description: 'Personens namn eller Firestore-ID' },
+      },
+      required: ['customer_id'],
+    },
+  },
 ]
 
 async function executeFunction(name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -305,6 +316,29 @@ async function executeFunction(name: string, args: Record<string, unknown>): Pro
         const ref = await adminDb.collection('customers_2025').add({ name, service: svc, kvm, tid: tidMins, pris, created_at: new Date().toISOString() })
         return { success: true, job_id: ref.id, name, service: svc, kvm, tid_mins: tidMins, pris }
       }
+      case 'get_customer_status': {
+        const found = await findDoc(String(args.customer_id ?? ''), 'customers')
+        if (!found) return { error: `Hittade ingen kund med "${args.customer_id}".` }
+        const d = found.data
+        const services: string[] = Array.isArray(d.services) ? d.services : []
+        const service_progress: Record<string, unknown> = d.service_progress ?? {}
+        const service_kvm: Record<string, unknown> = d.service_kvm ?? {}
+        // Build human-readable step labels per service
+        const SERVICE_STEPS_MAP: Record<string, string[]> = {
+          stentvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Stentvätt','Impregnering','Fogsand','Fakturerad'],
+          altantvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Altantvätt','Efterbehandling','Fakturerad'],
+          asfaltstvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Asfaltstvätt','Fakturerad'],
+          fasadtvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Fasadtvätt','Impregnering','Fakturerad'],
+          taktvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Taktvätt','Behandling','Fakturerad'],
+        }
+        const stepInfo: Record<string, { step_index: number; step_label: string; total_steps: number; kvm: unknown }> = {}
+        for (const svc of services) {
+          const steps = SERVICE_STEPS_MAP[svc] ?? []
+          const idx = Number(service_progress[svc] ?? 0)
+          stepInfo[svc] = { step_index: idx, step_label: steps[idx] ?? 'Okänt steg', total_steps: steps.length, kvm: service_kvm[svc] ?? 0 }
+        }
+        return { customer_id: found.ref.id, name: d.name, services, service_progress, service_kvm, step_info: stepInfo, rejected: d.rejected ?? false, status: d.status ?? 'new' }
+      }
       case 'delete_customer': {
         const customerId = String(args.customer_id ?? ''); const confirmed = Boolean(args.confirmed ?? false)
         if (!confirmed) { const found = await findDoc(customerId, 'customers'); const displayName = found?.data.name ?? customerId; return { needs_confirmation: true, message: `Vill du verkligen ta bort "${displayName}" permanent? Svara "ja, ta bort" för att bekräfta.` } }
@@ -349,13 +383,15 @@ REGLER:
 8. Tidrapportering → ALLTID log_time. hours: decimal (10 min = 0.17, 1h = 1.0)
 9. "Arbeten 2025" → ALLTID add_to_2025.
 10. Ta bort kund → delete_customer. Bekräfta ALLTID.
+11. PROCESSTATUS: När användaren frågar var en kund är i processen, vilket steg de är på, eller vad som hänt med ett ärende → ALLTID kör get_customer_status FÖRST. Svaret innehåller service_progress (steg-index per tjänst) och service_kvm (kvadratmeter per tjänst). Presentera alltid nuvarande steg med steg-etiketten (step_label) och hur långt kvar det är till klar.
 
 TJÄNSTESTEG:
-• stentvatt: Hembesök→Provtvätt→Offert→Stentvätt→Impregnering→Fogsand→Faktura
-• altantvatt: Hembesök→Offert→Altantvätt→Behandling→Faktura
-• asfaltstvatt: Hembesök→Offert→Asfaltstvätt→Faktura
-• fasadtvatt: Hembesök→Offert→Fasadtvätt→Impregnering→Faktura
-• taktvatt: Hembesök→Offert→Taktvätt→Behandling→Faktura
+• stentvatt (med fogsand): Ej påbörjad→Inbokat hembesök→Hembesök→Offert→Bokat→Stentvätt→Impregnering→Fogsand→Fakturerad
+• stentvatt (utan fogsand): Ej påbörjad→Inbokat hembesök→Hembesök→Offert→Bokat→Stentvätt→Impregnering→Fakturerad
+• altantvatt: Ej påbörjad→Inbokat hembesök→Hembesök→Offert→Bokat→Altantvätt→Efterbehandling→Fakturerad
+• asfaltstvatt: Ej påbörjad→Inbokat hembesök→Hembesök→Offert→Bokat→Asfaltstvätt→Fakturerad
+• fasadtvatt: Ej påbörjad→Inbokat hembesök→Hembesök→Offert→Bokat→Fasadtvätt→Impregnering→Fakturerad
+• taktvatt: Ej påbörjad→Inbokat hembesök→Hembesök→Offert→Bokat→Taktvätt→Behandling→Fakturerad
 ${memory}`
 
     // Build messages for Claude: start with history then current user message

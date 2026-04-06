@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, orderBy, query, where } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import AIPanel from '@/components/ai/AIPanel'
+import { BarChart2, Users, CalendarDays, Plus, RefreshCw, BarChart, ClipboardList, Bot, Sun, Moon, LogOut, Phone as PhoneIcon, MapPin as MapPinIcon } from 'lucide-react'
 
 /* ─── SERVICE STEPS ─────────────────────────────────────────── */
 const SERVICE_STEPS: Record<string,{id:number,label:string}[]> = {
@@ -145,8 +146,24 @@ function getCustomerProcessStages(c:any):Set<string>{
 }
 
 /* ─── COLOURS ────────────────────────────────────────────────── */
-const LIGHT={bg:'#fafafa',surface:'#ffffff',border:'#eaeaea',text:'#000000',textSec:'#666666',primary:'#0070f3',sidebar:'#000000',sidebarText:'#888888',input:'#ffffff',inputBorder:'#eaeaea'}
-const DARK={bg:'#000000',surface:'#111111',border:'#333333',text:'#ededed',textSec:'#888888',primary:'#0070f3',sidebar:'#000000',sidebarText:'#888888',input:'#111111',inputBorder:'#333333'}
+const LIGHT={bg:'#fafafa',surface:'#ffffff',border:'#eaeaea',text:'#000000',textSec:'#666666',primary:'#3b82f6',sidebar:'#000000',sidebarText:'#888888',input:'#ffffff',inputBorder:'#eaeaea'}
+const DARK={bg:'#000000',surface:'#111111',border:'#333333',text:'#ededed',textSec:'#888888',primary:'#3b82f6',success:'#10b981',warning:'#f59e0b',danger:'#ef4444',sidebar:'#000000',sidebarText:'#888888',input:'#111111',inputBorder:'#333333'}
+
+/* ─── STATUS BADGE ───────────────────────────────────────────── */
+function StatusBadge({status}:{status:string}){
+  const colors:Record<string,{bg:string,text:string}>={
+    new:      {bg:'rgba(245,158,11,0.15)',  text:'#f59e0b'},
+    in_progress:{bg:'rgba(59,130,246,0.15)',text:'#3b82f6'},
+    completed:{bg:'rgba(16,185,129,0.15)', text:'#10b981'},
+    rejected: {bg:'rgba(239,68,68,0.15)',  text:'#ef4444'},
+  }
+  const c=colors[status]||{bg:'rgba(136,136,136,0.15)',text:'#888'}
+  return(
+    <span style={{display:'inline-flex',alignItems:'center',padding:'3px 10px',borderRadius:9999,fontSize:12,fontWeight:600,background:c.bg,color:c.text,whiteSpace:'nowrap' as const,letterSpacing:'-0.1px'}}>
+      {statusLabel(status)}
+    </span>
+  )
+}
 const EMPTY_UH={name:'',phone:'',email:'',address:'',amount:'',note:''}
 const TODAY=new Date().toISOString().split('T')[0]
 
@@ -748,19 +765,19 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
         {/* Nav */}
         <nav style={{flex:1,padding:'8px 0'}}>
           {([
-            ['dashboard',   'fas fa-chart-line',    'Översikt'],
-            ['customers',   'fas fa-users',          'Kunder'],
-            ['kalender',    'fas fa-calendar-alt',   'Kalender'],
-            ['new-customer','fas fa-plus',           'Ny kund'],
-            ['underhall',   'fas fa-sync-alt',       'Underhåll'],
-            ['statistik',   'fas fa-chart-bar',      'Statistik'],
-            ['arbeten2025', 'fas fa-clipboard-list', 'Arbeten 2025'],
-          ] as [string,string,string][]).map(([p,icon,label])=>(
+            ['dashboard',   BarChart2,    'Översikt'],
+            ['customers',   Users,         'Kunder'],
+            ['kalender',    CalendarDays,  'Kalender'],
+            ['new-customer',Plus,          'Ny kund'],
+            ['underhall',   RefreshCw,     'Underhåll'],
+            ['statistik',   BarChart,      'Statistik'],
+            ['arbeten2025', ClipboardList, 'Arbeten 2025'],
+          ] as [string,any,string][]).map(([p,Icon,label])=>(
             <div key={p} onClick={()=>{setPage(p);if(isMobile)setSidebarOpen(false)}}
               style={{display:'flex',alignItems:'center',gap:10,padding:'8px 16px',cursor:'pointer',borderRadius:6,margin:'1px 8px',background:page===p?'#111':'transparent',color:page===p?'#ededed':'#888',transition:'all 0.15s',fontSize:13}}>
-              <i className={icon} style={{width:14,textAlign:'center',fontSize:13,color:page===p?'#0070f3':'#555'}}/>
+              <Icon size={14} color={page===p?'#3b82f6':'#555'} style={{flexShrink:0}}/>
               <span>{label}</span>
-              {page===p&&<div style={{marginLeft:'auto',width:4,height:4,borderRadius:'50%',background:'#0070f3'}}/>}
+              {page===p&&<div style={{marginLeft:'auto',width:4,height:4,borderRadius:'50%',background:'#3b82f6'}}/>}
             </div>
           ))}
         </nav>
@@ -768,16 +785,16 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
         {/* Footer */}
         <div style={{padding:'12px 8px',borderTop:'1px solid #222',display:'flex',flexDirection:'column',gap:4}}>
           <div onClick={()=>setShowAI(!showAI)} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 16px',cursor:'pointer',borderRadius:6,background:showAI?'#111':'transparent',color:showAI?'#ededed':'#888',fontSize:13,transition:'all 0.15s'}}>
-            <i className="fas fa-robot" style={{width:14,textAlign:'center',fontSize:13,color:showAI?'#0070f3':'#555'}}/>
+            <Bot size={14} color={showAI?'#3b82f6':'#555'} style={{flexShrink:0}}/>
             <span>AI-assistent</span>
             {activeTimer&&<div style={{marginLeft:'auto',width:8,height:8,borderRadius:'50%',background:'#ef4444',animation:'pulse 1.5s infinite'}}/>}
           </div>
           <div onClick={()=>setDark(!dark)} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 16px',cursor:'pointer',borderRadius:6,color:'#888',fontSize:13,transition:'all 0.15s'}}>
-            <i className={dark?'fas fa-sun':'fas fa-moon'} style={{width:14,textAlign:'center',fontSize:13,color:'#555'}}/>
+            {dark?<Sun size={14} color="#555" style={{flexShrink:0}}/>:<Moon size={14} color="#555" style={{flexShrink:0}}/>}
             <span>{dark?'Ljust läge':'Mörkt läge'}</span>
           </div>
           <div onClick={onLogout} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 16px',cursor:'pointer',borderRadius:6,color:'#888',fontSize:13,transition:'all 0.15s'}}>
-            <i className="fas fa-sign-out-alt" style={{width:14,textAlign:'center',fontSize:13,color:'#555'}}/>
+            <LogOut size={14} color="#555" style={{flexShrink:0}}/>
             <span>Logga ut</span>
           </div>
         </div>
@@ -805,9 +822,9 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               ['fas fa-calendar-check','Jobb denna månad', String(jobsThisMonth),                     '#06b6d4'],
               ['fas fa-money-bill-wave','Intäkt denna månad', revenueThisMonth>0?fmtCur(revenueThisMonth):'0 kr','#8b5cf6'],
             ] as [string,string,any,string][]).map(([icon,label,val,color])=>(
-              <div key={label} style={{background:C.surface,padding:isMobile?'14px 12px':'18px 16px',borderRadius:8,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:isMobile?8:14,minWidth:0}}>
-                <div style={{width:isMobile?36:52,height:isMobile?36:52,borderRadius:12,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                  <i className={icon} style={{fontSize:isMobile?16:22,color}}/>
+              <div key={label} style={{background:C.surface,padding:isMobile?'14px 12px':'18px 16px',borderRadius:10,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:isMobile?8:14,minWidth:0,minHeight:80}}>
+                <div style={{width:isMobile?36:44,height:isMobile?36:44,borderRadius:10,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                  <i className={icon} style={{fontSize:20,color}}/>
                 </div>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:isMobile?14:typeof val==='string'&&val.length>6?16:28,fontWeight:700,color:C.text,lineHeight:1}}>{val}</div>
@@ -881,7 +898,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
             </div>
             <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
               {([['active','Aktiva'],['new','Nya'],['in_progress','Öppna'],['completed','Stängda'],['rejected','Ej Accepterade']] as [string,string][]).map(([f,l])=>(
-                <button key={f} onClick={()=>setFilter(f)} style={{padding:'8px 14px',border:`2px solid ${filter===f?C.primary:C.border}`,background:filter===f?C.primary:C.surface,color:filter===f?'white':C.text,borderRadius:8,fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:'inherit',minHeight:38}}>{l}</button>
+                <button key={f} onClick={()=>setFilter(f)} style={{padding:'6px 16px',border:`1.5px solid ${filter===f?C.primary:C.border}`,background:filter===f?C.primary:'transparent',color:filter===f?'white':C.textSec,borderRadius:9999,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',minHeight:34,transition:'all 0.15s',letterSpacing:'-0.1px'}}>{l}</button>
               ))}
             </div>
             <div style={{width:'100%',height:1,background:C.border,opacity:0.9}}/>
@@ -889,7 +906,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               <div style={{fontSize:12,fontWeight:700,color:C.textSec,letterSpacing:'0.04em',textTransform:'uppercase' as const}}>Ärendeprocess</div>
               <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
                 {PROCESS_FILTERS.map(({id,label})=>(
-                  <button key={id} onClick={()=>setProcessFilter(id)} style={{padding:'8px 14px',border:`2px solid ${processFilter===id?C.primary:C.border}`,background:processFilter===id?C.primary:C.surface,color:processFilter===id?'white':C.text,borderRadius:8,fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:'inherit',minHeight:38}}>{label}</button>
+                  <button key={id} onClick={()=>setProcessFilter(id)} style={{padding:'6px 16px',border:`1.5px solid ${processFilter===id?C.primary:C.border}`,background:processFilter===id?C.primary:'transparent',color:processFilter===id?'white':C.textSec,borderRadius:9999,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',minHeight:34,transition:'all 0.15s',letterSpacing:'-0.1px'}}>{label}</button>
                 ))}
               </div>
             </div>
@@ -922,7 +939,6 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                     <tbody>
                       {filtered.map((c,idx)=>{
                         const status=getStatus(c)
-                        const statusColors:Record<string,string>={new:'#f59e0b',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
                         const stages=Array.from(getCustomerProcessStages(c)).map(s=>PROCESS_FILTERS.find(p=>p.id===s)?.label||s).join(', ')
                         return(
                           <tr key={c.id} style={{borderTop:`1px solid ${C.border}`,background:idx%2===0?C.surface:C.bg}}>
@@ -930,7 +946,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                             <td style={{padding:'10px 14px',color:C.textSec,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</td>
                             <td style={{padding:'10px 14px',color:C.text}}>{getServices(c).map((s:string)=>svcLabel(s)).join(', ')}</td>
                             <td style={{padding:'10px 14px'}}>
-                              <span style={{padding:'3px 10px',borderRadius:9999,fontSize:11,fontWeight:600,background:`${statusColors[status]}18`,color:statusColors[status],whiteSpace:'nowrap'}}>{statusLabel(status)}</span>
+                              <StatusBadge status={status}/>
                             </td>
                             <td style={{padding:'10px 14px',color:C.textSec,fontSize:12}}>{stages}</td>
                             <td style={{padding:'10px 14px',fontWeight:700,color:'#10b981',whiteSpace:'nowrap'}}>{(parseFloat(c.price_excl_vat)||0)>0?fmtCur(parseFloat(c.price_excl_vat)):'-'}</td>
@@ -1338,9 +1354,9 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
       {showModal&&current&&(
         <div style={modalOverlay} onClick={e=>{if(e.target===e.currentTarget){setShowModal(false);setCurrent(null)}}}>
           <div style={modalBox(900)}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:isMobile?'16px':'24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:10}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'20px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:10}}>
               <div>
-                <h2 style={{fontSize:isMobile?18:22,fontWeight:600,color:C.text,margin:0}}>{current.name}</h2>
+                <h2 style={{fontSize:20,fontWeight:600,color:C.text,margin:0}}>{current.name}</h2>
                 {current.booked_date&&<div style={{fontSize:12,color:C.primary,marginTop:2}}><i className="fas fa-calendar-check" style={{marginRight:4}}/>Bokad: {current.booked_date}</div>}
               </div>
               <button onClick={()=>{setShowModal(false);setCurrent(null)}} style={{width:36,height:36,border:'none',background:C.bg,borderRadius:8,cursor:'pointer',fontSize:18,color:C.text,display:'flex',alignItems:'center',justifyContent:'center'}}><i className="fas fa-times"/></button>
@@ -1506,30 +1522,16 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                           reader.onload=async ev=>{
                             const base64=ev.target?.result as string
                             const base64Data=base64.split(',')[1]
-                            // Skicka till AI för analys
+                            // Skicka till dedikerad PDF-route
                             try{
-                              const res=await fetch('/api/ai',{
+                              const res=await fetch('/api/ai/pdf',{
                                 method:'POST',
                                 headers:{'Content-Type':'application/json'},
-                                body:JSON.stringify({
-                                  message:`Analysera denna offert-PDF för ett ytrengöringsföretag. Extrahera ALLA materialposter med namn, antal och styckpris. Returnera svaret som JSON i detta exakta format:
-{"material_items":[{"name":"Materialnamn","qty":1,"unit_price":100}]}
-Inkludera ENBART material och produkter, INTE arbete/tjänster. Om du hittar totalsummor, exkludera moms.`,
-                                  messages:[{role:'user',content:`Analysera offert-PDF och extrahera materialposter som JSON. PDF (base64): ${base64Data.substring(0,500)}...`}],
-                                  sessionId:'pdf-extract',
-                                  pdfBase64:base64Data,
-                                })
+                                body:JSON.stringify({pdfBase64:base64Data,customerId:current?.id??''})
                               })
                               const data=await res.json()
-                              // Försök parsa JSON från svaret
-                              const match=data.reply?.match(/\{[\s\S]*"material_items"[\s\S]*\}/)
-                              if(match){
-                                try{
-                                  const parsed=JSON.parse(match[0])
-                                  if(parsed.material_items?.length>0){
-                                    setMaterialItems(parsed.material_items.map((i:any)=>({name:String(i.name||''),qty:String(i.qty||1),unit_price:String(i.unit_price||0)})))
-                                  }
-                                }catch{}
+                              if(data.material_items?.length>0){
+                                setMaterialItems(data.material_items.map((i:any)=>({name:String(i.name||''),qty:String(i.qty||1),unit_price:String(i.unit_price||0)})))
                               }
                             }catch(err){console.error('PDF extract error:',err)}
                           }
@@ -1801,26 +1803,25 @@ function CustomerCard({c,C,onClick}:{c:any,C:any,onClick:()=>void}){
   const status=getStatus(c),prog=Math.round(calcProgress(c))
   const svcs=getServices(c),kvm=getKvm(c)
   const svcStr=svcs.map((s:string)=>`${svcLabel(s)} (${kvm[s]||0}kvm)`).join(', ')
-  const statusColors:Record<string,string>={new:'#f59e0b',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
   const price=parseFloat(c.price_excl_vat)||0
   return(
-    <div onClick={onClick} style={{background:C.surface,padding:18,borderRadius:8,border:`1px solid ${C.border}`,cursor:'pointer',transition:'border-color 0.15s'}}
-      onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.primary}}
-      onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.border}}>
+    <div onClick={onClick} style={{background:C.surface,padding:18,borderRadius:10,border:`1px solid ${C.border}`,cursor:'pointer',transition:'border-color 0.15s,box-shadow 0.15s'}}
+      onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.primary;(e.currentTarget as HTMLElement).style.boxShadow=`0 0 0 1px ${C.primary}22`}}
+      onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.border;(e.currentTarget as HTMLElement).style.boxShadow='none'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
         <div>
           <div style={{fontSize:18,fontWeight:600,color:C.text,marginBottom:4}}>{c.name}</div>
           <div style={{fontSize:13,color:C.textSec}}>{svcStr}</div>
         </div>
         <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}}>
-          <span style={{padding:'4px 12px',borderRadius:9999,fontSize:12,fontWeight:600,background:`${statusColors[status]}18`,color:statusColors[status],whiteSpace:'nowrap'}}>{statusLabel(status)}</span>
+          <StatusBadge status={status}/>
           {price>0&&<span style={{fontSize:13,fontWeight:700,color:'#10b981',whiteSpace:'nowrap'}}>{fmtCur(price)}</span>}
           {c.booked_date&&<span style={{fontSize:11,color:'#3b82f6',whiteSpace:'nowrap'}}><i className="fas fa-calendar-check" style={{marginRight:3}}/>{c.booked_date}</span>}
         </div>
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:12}}>
-        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:14,color:C.textSec}}><i className="fas fa-phone" style={{width:16,color:C.primary}}/>{c.phone}</div>
-        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:14,color:C.textSec}}><i className="fas fa-map-marker-alt" style={{width:16,color:C.primary}}/>{c.address}</div>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:14,color:C.textSec}}><PhoneIcon size={16} color={C.primary}/>{c.phone}</div>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:14,color:C.textSec}}><MapPinIcon size={16} color={C.primary}/>{c.address}</div>
       </div>
       {c.note&&<div style={{fontSize:12,color:C.text,background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.3)',padding:'6px 10px',borderRadius:6,marginBottom:12}}>📝 {c.note}</div>}
       <div style={{paddingTop:12,borderTop:`1px solid ${C.border}`}}>
