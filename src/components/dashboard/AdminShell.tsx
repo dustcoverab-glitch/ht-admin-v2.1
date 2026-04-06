@@ -2223,6 +2223,36 @@ function DonutChart({data,C}:{data:{label:string,value:number,color:string}[],C:
           </div>
         ))}
       </div>
+
+      {/* ── PDF VIEWER MODAL ── */}
+      {pdfViewerOpen&&current?.pdf_base64&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:2000,display:'flex',flexDirection:'column'}} onClick={e=>{if(e.target===e.currentTarget)setPdfViewerOpen(false)}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 20px',background:'#111',borderBottom:'1px solid #333',flexShrink:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <i className="fas fa-file-pdf" style={{color:'#ef4444',fontSize:16}}/>
+              <span style={{fontSize:14,fontWeight:600,color:'#ededed'}}>{current.pdf_name}</span>
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>{const a=document.createElement('a');a.href=`data:application/pdf;base64,${current.pdf_base64}`;a.download=current.pdf_name;a.click()}}
+                style={{padding:'6px 14px',background:'transparent',border:'1px solid #444',borderRadius:6,color:'#aaa',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>
+                <i className="fas fa-download"/> Ladda ned
+              </button>
+              <button onClick={()=>setPdfViewerOpen(false)}
+                style={{padding:'6px 14px',background:'transparent',border:'1px solid #444',borderRadius:6,color:'#aaa',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>
+                <i className="fas fa-times"/> Stäng
+              </button>
+            </div>
+          </div>
+          <div style={{flex:1,overflow:'hidden'}}>
+            <iframe
+              src={`data:application/pdf;base64,${current.pdf_base64}`}
+              style={{width:'100%',height:'100%',border:'none'}}
+              title={current.pdf_name}
+            />
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
@@ -2675,34 +2705,8 @@ function StatPage({customers,allLogs,C,isMobile}:any){
       </div>
 
 
-      {/* ── PDF VIEWER MODAL ── */}
-      {pdfViewerOpen&&current?.pdf_base64&&(
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:2000,display:'flex',flexDirection:'column'}} onClick={e=>{if(e.target===e.currentTarget)setPdfViewerOpen(false)}}>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 20px',background:'#111',borderBottom:'1px solid #333',flexShrink:0}}>
-            <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <i className="fas fa-file-pdf" style={{color:'#ef4444',fontSize:16}}/>
-              <span style={{fontSize:14,fontWeight:600,color:'#ededed'}}>{current.pdf_name}</span>
-            </div>
-            <div style={{display:'flex',gap:8}}>
-              <button onClick={()=>{const a=document.createElement('a');a.href=`data:application/pdf;base64,${current.pdf_base64}`;a.download=current.pdf_name;a.click()}}
-                style={{padding:'6px 14px',background:'transparent',border:'1px solid #444',borderRadius:6,color:'#aaa',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>
-                <i className="fas fa-download"/> Ladda ned
-              </button>
-              <button onClick={()=>setPdfViewerOpen(false)}
-                style={{padding:'6px 14px',background:'transparent',border:'1px solid #444',borderRadius:6,color:'#aaa',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>
-                <i className="fas fa-times"/> Stäng
-              </button>
-            </div>
-          </div>
-          <div style={{flex:1,overflow:'hidden'}}>
-            <iframe
-              src={`data:application/pdf;base64,${current.pdf_base64}`}
-              style={{width:'100%',height:'100%',border:'none'}}
-              title={current.pdf_name}
-            />
-          </div>
-        </div>
-      )}
+
+      
 
     </div>
   )
