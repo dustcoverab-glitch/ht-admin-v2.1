@@ -247,6 +247,14 @@ export default function MailPage({ customers, C, isMobile }: any) {
     })
   }
 
+  async function disconnectMail() {
+    if (!confirm('Logga ut från mail?')) return
+    await fetch('/api/mail', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'disconnect' }) })
+    setConnected(false)
+    setEmails([])
+    setSelected(null)
+  }
+
   function fmtMailDate(d: string) {
     if (!d) return ''
     const dt = new Date(d)
@@ -299,6 +307,10 @@ export default function MailPage({ customers, C, isMobile }: any) {
         ))}
         <div style={{ flex: 1 }} />
         <div style={{ padding: '8px 14px', paddingBottom: 12 }}>
+          <button onClick={disconnectMail}
+            style={{ width: '100%', padding: '6px 0', background: 'transparent', border: `1px solid rgba(239,68,68,0.3)`, borderRadius: 6, color: '#ef4444', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 6 }}>
+            <i className="fas fa-sign-out-alt" />{!isMobile && ' Logga ut'}
+          </button>
           <button onClick={() => { loadEmails(folder === 'drafts' ? 'inbox' : folder); loadDrafts() }}
             style={{ width: '100%', padding: '6px 0', background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: C.textSec, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <i className="fas fa-sync-alt" />{!isMobile && ' Uppdatera'}

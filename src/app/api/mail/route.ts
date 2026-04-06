@@ -94,6 +94,13 @@ export async function GET(req: NextRequest) {
     return res
   }
 
+  if (action === 'disconnect') {
+    const res = NextResponse.json({ success: true })
+    res.cookies.delete('ms_access_token')
+    res.cookies.delete('ms_refresh_token')
+    return res
+  }
+
   if (action === 'saveDraft') {
     const token = await getToken()
     if (!token) return NextResponse.json({ success: false, error: 'Not authenticated' })
@@ -166,6 +173,13 @@ ${bodyLines}
     if (r.status === 202) return NextResponse.json({ success: true })
     const err = await r.json().catch(() => ({}))
     return NextResponse.json({ success: false, error: err.error?.message || r.statusText })
+  }
+
+  if (action === 'disconnect') {
+    const res = NextResponse.json({ success: true })
+    res.cookies.delete('ms_access_token')
+    res.cookies.delete('ms_refresh_token')
+    return res
   }
 
   if (action === 'saveDraft') {
