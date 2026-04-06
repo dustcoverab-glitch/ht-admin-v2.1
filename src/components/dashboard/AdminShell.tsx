@@ -1101,24 +1101,26 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                         if(c.booked_time&&c.booked_end_time){const[sh,sm]=c.booked_time.split(':').map(Number);const[eh,em]=c.booked_end_time.split(':').map(Number);height=Math.max(HOUR_H,(eh-sh+(em-sm)/60)*HOUR_H)}
                         return{top,height}
                       })
-                      // Hitta överlappande grupper
+                      // Overlap-kolumner: varje jobb får col-index, totalCols = max i SAMMA överlapp-grupp
                       const cols:number[]=new Array(dayJobs.length).fill(0)
                       const totalCols:number[]=new Array(dayJobs.length).fill(1)
-                      for(let a=0;a<dayJobs.length;a++){
-                        let maxCol=0
-                        for(let b=0;b<a;b++){
-                          const aTop=positions[a].top,aBot=aTop+positions[a].height
-                          const bTop=positions[b].top,bBot=bTop+positions[b].height
-                          if(aTop<bBot&&aBot>bTop){cols[a]=Math.max(cols[a],cols[b]+1);maxCol=Math.max(maxCol,cols[a])}
-                        }
+                      const overlaps=(a:number,b:number)=>{
+                        const aBot=positions[a].top+positions[a].height
+                        const bBot=positions[b].top+positions[b].height
+                        return positions[a].top<bBot&&aBot>positions[b].top
                       }
+                      // Tilldela kolumner
                       for(let a=0;a<dayJobs.length;a++){
-                        for(let b=0;b<dayJobs.length;b++){
-                          if(a===b)continue
-                          const aTop=positions[a].top,aBot=aTop+positions[a].height
-                          const bTop=positions[b].top,bBot=bTop+positions[b].height
-                          if(aTop<bBot&&aBot>bTop)totalCols[a]=Math.max(totalCols[a],cols[b]+1)
-                        }
+                        const usedCols=new Set<number>()
+                        for(let b=0;b<a;b++){if(overlaps(a,b))usedCols.add(cols[b])}
+                        let c=0;while(usedCols.has(c))c++
+                        cols[a]=c
+                      }
+                      // Räkna totalCols = max kolumner i varje överlapp-grupp
+                      for(let a=0;a<dayJobs.length;a++){
+                        let maxC=cols[a]
+                        for(let b=0;b<dayJobs.length;b++){if(a!==b&&overlaps(a,b))maxC=Math.max(maxC,cols[b])}
+                        totalCols[a]=maxC+1
                       }
                       return dayJobs.map((c,idx)=>{
                         const statusColors:Record<string,string>={new:'#22c55e',in_progress:C.primary,completed:'#10b981',rejected:'#888888'}
