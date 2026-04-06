@@ -232,6 +232,13 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [bookedDateCustomer,setBookedDateCustomer]=useState<any>(null)
   const [bookedDateService,setBookedDateService]=useState('')
   const [bookedDateValue,setBookedDateValue]=useState(TODAY)
+  /* Feature: Calendar add job */
+  const [calAddModal,setCalAddModal]=useState(false)
+  const [calAddDate,setCalAddDate]=useState('')
+  const [calAddTime,setCalAddTime]=useState('08:00')
+  const [calAddCustomerId,setCalAddCustomerId]=useState('')
+  const [calAddService,setCalAddService]=useState('')
+  const [calAddStep,setCalAddStep]=useState<number>(0)
   /* Feature 2: Timer */
   const [timerSecs,setTimerSecs]=useState(0)
   const [timerRunning,setTimerRunning]=useState(false)
@@ -394,6 +401,25 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
     setBookedDateCustomer(null)
     setBookedDateService('')
     setBookedDateValue(TODAY)
+  }
+
+  /* ── Calendar add job ── */
+  async function saveCalAdd(){
+    const cust=customers.find(c=>c.id===calAddCustomerId)
+    if(!cust)return
+    const updateData:any={booked_date:calAddDate,booked_time:calAddTime}
+    if(calAddStep>0&&calAddService){
+      const p={...getProgress(cust)}
+      p[calAddService]=calAddStep
+      updateData.service_progress=p
+    }
+    await updateDoc(doc(db,'customers',calAddCustomerId),updateData)
+    await loadCustomers()
+    setCalAddModal(false)
+    setCalAddCustomerId('')
+    setCalAddService('')
+    setCalAddStep(0)
+    setCalAddTime('08:00')
   }
 
   /* ── Material items ── */
@@ -748,11 +774,11 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
       {isMobile&&sidebarOpen&&<div onClick={()=>setSidebarOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:999}}/>}
 
       {/* SIDEBAR */}
-      <aside style={{width:240,flexShrink:0,background:'#000',color:'#888',display:'flex',flexDirection:'column',height:'100vh',overflowY:'auto',borderRight:'1px solid #333',...(isMobile?{position:'fixed' as const,top:0,left:0,zIndex:1000,transform:sidebarOpen?'translateX(0)':'translateX(-100%)',transition:'transform 0.25s ease'}:{})}}>
+      <aside style={{width:240,flexShrink:0,background:'#000',color:'#888',display:'flex',flexDirection:'column',height:'100vh',overflowY:'auto',borderRight:'1px solid #1a1a1a',...(isMobile?{position:'fixed' as const,top:0,left:0,zIndex:1000,transform:sidebarOpen?'translateX(0)':'translateX(-100%)',transition:'transform 0.25s ease'}:{})}}>
         {/* Logo */}
         <div style={{padding:'20px 20px 16px',borderBottom:'1px solid #222'}}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <div style={{width:28,height:28,borderRadius:6,background:'#0070f3',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div style={{width:28,height:28,borderRadius:6,background:'linear-gradient(135deg, #3b82f6, #6366f1)',display:'flex',alignItems:'center',justifyContent:'center'}}>
               <i className="fas fa-droplet" style={{fontSize:12,color:'white'}}/>
             </div>
             <div>
@@ -774,7 +800,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
             ['arbeten2025', ClipboardList, 'Arbeten 2025'],
           ] as [string,any,string][]).map(([p,Icon,label])=>(
             <div key={p} onClick={()=>{setPage(p);if(isMobile)setSidebarOpen(false)}}
-              style={{display:'flex',alignItems:'center',gap:10,padding:'8px 16px',cursor:'pointer',borderRadius:6,margin:'1px 8px',background:page===p?'#111':'transparent',color:page===p?'#ededed':'#888',transition:'all 0.15s',fontSize:13}}>
+              style={{display:'flex',alignItems:'center',gap:10,padding:'8px 16px',cursor:'pointer',borderRadius:6,margin:'1px 8px',background:page===p?'rgba(59,130,246,0.12)':'transparent',color:page===p?'#ededed':'#888',transition:'all 0.15s',fontSize:13,borderLeft:page===p?'3px solid #3b82f6':'3px solid transparent'}}>
               <Icon size={14} color={page===p?'#3b82f6':'#555'} style={{flexShrink:0}}/>
               <span>{label}</span>
               {page===p&&<div style={{marginLeft:'auto',width:4,height:4,borderRadius:'50%',background:'#3b82f6'}}/>}
@@ -822,8 +848,10 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               ['fas fa-calendar-check','Jobb denna månad', String(jobsThisMonth),                     '#06b6d4'],
               ['fas fa-money-bill-wave','Intäkt denna månad', revenueThisMonth>0?fmtCur(revenueThisMonth):'0 kr','#8b5cf6'],
             ] as [string,string,any,string][]).map(([icon,label,val,color])=>(
-              <div key={label} style={{background:C.surface,padding:isMobile?'14px 12px':'18px 16px',borderRadius:10,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:isMobile?8:14,minWidth:0,minHeight:80}}>
-                <div style={{width:isMobile?36:44,height:isMobile?36:44,borderRadius:10,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <div key={label} style={{background:C.surface,padding:isMobile?'14px 12px':'18px 16px',borderRadius:10,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:isMobile?8:14,minWidth:0,minHeight:80,transition:'all 0.2s',cursor:'default'}}
+                onMouseEnter={e=>(e.currentTarget.style.borderColor=color)}
+                onMouseLeave={e=>(e.currentTarget.style.borderColor=C.border)}>
+                <div style={{width:isMobile?36:44,height:isMobile?36:44,borderRadius:10,background:`linear-gradient(135deg, ${color}20, ${color}10)`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                   <i className={icon} style={{fontSize:20,color}}/>
                 </div>
                 <div style={{minWidth:0}}>
@@ -898,7 +926,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
             </div>
             <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
               {([['active','Aktiva'],['new','Nya'],['in_progress','Öppna'],['completed','Stängda'],['rejected','Ej Accepterade']] as [string,string][]).map(([f,l])=>(
-                <button key={f} onClick={()=>setFilter(f)} style={{padding:'6px 16px',border:`1.5px solid ${filter===f?C.primary:C.border}`,background:filter===f?C.primary:'transparent',color:filter===f?'white':C.textSec,borderRadius:9999,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',minHeight:34,transition:'all 0.15s',letterSpacing:'-0.1px'}}>{l}</button>
+                <button key={f} onClick={()=>setFilter(f)} style={{padding:'6px 16px',border:`1.5px solid ${filter===f?C.primary:C.border}`,background:filter===f?C.primary:'transparent',color:filter===f?'white':C.textSec,borderRadius:9999,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',minHeight:34,transition:'all 0.15s',letterSpacing:'-0.1px',boxShadow:filter===f?'0 2px 8px rgba(59,130,246,0.3)':'none'}}>{l}</button>
               ))}
             </div>
             <div style={{width:'100%',height:1,background:C.border,opacity:0.9}}/>
@@ -906,7 +934,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               <div style={{fontSize:12,fontWeight:700,color:C.textSec,letterSpacing:'0.04em',textTransform:'uppercase' as const}}>Ärendeprocess</div>
               <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
                 {PROCESS_FILTERS.map(({id,label})=>(
-                  <button key={id} onClick={()=>setProcessFilter(id)} style={{padding:'6px 16px',border:`1.5px solid ${processFilter===id?C.primary:C.border}`,background:processFilter===id?C.primary:'transparent',color:processFilter===id?'white':C.textSec,borderRadius:9999,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',minHeight:34,transition:'all 0.15s',letterSpacing:'-0.1px'}}>{label}</button>
+                  <button key={id} onClick={()=>setProcessFilter(id)} style={{padding:'6px 16px',border:`1.5px solid ${processFilter===id?C.primary:C.border}`,background:processFilter===id?C.primary:'transparent',color:processFilter===id?'white':C.textSec,borderRadius:9999,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',minHeight:34,transition:'all 0.15s',letterSpacing:'-0.1px',boxShadow:processFilter===id?'0 2px 8px rgba(59,130,246,0.3)':'none'}}>{label}</button>
                 ))}
               </div>
             </div>
@@ -1034,9 +1062,9 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
             const dayJobs=customers.filter(c=>c.booked_date===dateStr&&!c.rejected)
             const isToday=dateStr===todayStr
             return(
-              <div key={i} style={{borderRight:i<6?`1px solid ${C.border}`:'none',padding:6,background:isToday?`${C.primary}05`:'transparent',minHeight:200}}>
+              <div key={i} style={{borderRight:i<6?`1px solid ${C.border}`:'none',padding:6,background:isToday?`${C.primary}05`:'transparent',minHeight:200,display:'flex',flexDirection:'column',gap:4}}>
                 {dayJobs.length===0
-                  ?<div style={{height:'100%',minHeight:80,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                  ?<div style={{flex:1,minHeight:80,display:'flex',alignItems:'center',justifyContent:'center'}}>
                     <span style={{fontSize:10,color:C.border}}>–</span>
                   </div>
                   :dayJobs.map(c=>{
@@ -1044,9 +1072,10 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                     const statusColors:Record<string,string>={new:'#f59e0b',in_progress:C.primary,completed:'#10b981',rejected:'#ef4444'}
                     const s=getStatus(c)
                     return(
-                      <div key={c.id} onClick={()=>openCustomer(c)} style={{background:`${statusColors[s]}15`,border:`1.5px solid ${statusColors[s]}40`,borderLeft:`3px solid ${statusColors[s]}`,borderRadius:8,padding:'6px 8px',marginBottom:6,cursor:'pointer',transition:'all 0.15s'}}
+                      <div key={c.id} onClick={()=>openCustomer(c)} style={{background:`${statusColors[s]}15`,border:`1.5px solid ${statusColors[s]}40`,borderLeft:`3px solid ${statusColors[s]}`,borderRadius:8,padding:'6px 8px',cursor:'pointer',transition:'all 0.15s'}}
                         onMouseEnter={e=>(e.currentTarget.style.background=`${statusColors[s]}25`)}
                         onMouseLeave={e=>(e.currentTarget.style.background=`${statusColors[s]}15`)}>
+                        {c.booked_time&&<div style={{fontSize:9,color:C.textSec,marginBottom:2,display:'flex',alignItems:'center',gap:3}}><i className="fas fa-clock" style={{fontSize:8}}/>{c.booked_time}</div>}
                         <div style={{fontSize:isMobile?10:12,fontWeight:700,color:C.text,marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
                         <div style={{fontSize:10,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</div>
                         {svcs.length>0&&<div style={{fontSize:9,color:statusColors[s],fontWeight:600,marginTop:2}}>{svcs.map((sv:string)=>svcLabel(sv)).join(', ')}</div>}
@@ -1055,6 +1084,12 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                     )
                   })
                 }
+                <button onClick={e=>{e.stopPropagation();setCalAddDate(dateStr);setCalAddTime('08:00');setCalAddCustomerId('');setCalAddService('');setCalAddStep(0);setCalAddModal(true)}}
+                  style={{marginTop:'auto',width:'100%',padding:'3px 0',background:'transparent',border:`1px dashed ${C.border}`,borderRadius:6,color:C.textSec,cursor:'pointer',fontSize:isMobile?9:10,fontFamily:'inherit',transition:'all 0.15s'}}
+                  onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.primary;(e.currentTarget as HTMLElement).style.color=C.primary}}
+                  onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.border;(e.currentTarget as HTMLElement).style.color=C.textSec}}>
+                  + Lägg till
+                </button>
               </div>
             )
           })}
@@ -1088,6 +1123,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                   </div>
                   <div style={{flexShrink:0,textAlign:'right'}}>
                     <div style={{fontSize:11,color:C.textSec}}>{new Date(c.booked_date).toLocaleDateString('sv-SE',{weekday:'short',day:'numeric',month:'short'})}</div>
+                    {c.booked_time&&<div style={{fontSize:11,color:C.primary,display:'flex',alignItems:'center',justifyContent:'flex-end',gap:3}}><i className="fas fa-clock" style={{fontSize:9}}/>{c.booked_time}</div>}
                     {(parseFloat(c.price_excl_vat)||0)>0&&<div style={{fontSize:12,fontWeight:700,color:'#10b981'}}>{fmtCur(parseFloat(c.price_excl_vat))}</div>}
                   </div>
                 </div>
@@ -1675,6 +1711,80 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
       )}
 
       {/* ── BOOKED DATE MODAL ── */}
+      {/* ── KALENDER: Lägg till jobb ── */}
+      {calAddModal&&(
+        <div style={{...modalOverlay,zIndex:1003}} onClick={e=>{if(e.target===e.currentTarget)setCalAddModal(false)}}>
+          <div style={modalBox(500)}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'20px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:10}}>
+              <h2 style={{fontSize:18,fontWeight:600,color:C.text}}>Lägg till jobb</h2>
+              <button onClick={()=>setCalAddModal(false)} style={{background:'none',border:'none',color:C.textSec,cursor:'pointer',fontSize:22}}><i className="fas fa-times"/></button>
+            </div>
+            <div style={{padding:24}}>
+              {/* Datum */}
+              <div style={{marginBottom:16}}>
+                <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Datum</label>
+                <input type="date" value={calAddDate} onChange={e=>setCalAddDate(e.target.value)} style={inp}/>
+              </div>
+              {/* Tid */}
+              <div style={{marginBottom:16}}>
+                <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Tid</label>
+                <input type="time" value={calAddTime} onChange={e=>setCalAddTime(e.target.value)} style={inp}/>
+              </div>
+              {/* Kund */}
+              <div style={{marginBottom:16}}>
+                <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Kund</label>
+                <select value={calAddCustomerId} onChange={e=>{setCalAddCustomerId(e.target.value);setCalAddService('');setCalAddStep(0)}} style={inp}>
+                  <option value="">— Välj kund —</option>
+                  {[...customers].sort((a,b)=>(a.name||'').localeCompare(b.name||'','sv')).map(c=>(
+                    <option key={c.id} value={c.id}>{c.name} – {c.address}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Tjänst (om kund vald) */}
+              {calAddCustomerId&&(()=>{
+                const cust=customers.find(c=>c.id===calAddCustomerId)
+                if(!cust)return null
+                const svcs=getServices(cust)
+                if(!svcs.length)return null
+                return(
+                  <div style={{marginBottom:16}}>
+                    <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Tjänst</label>
+                    <select value={calAddService} onChange={e=>{setCalAddService(e.target.value);setCalAddStep(0)}} style={inp}>
+                      <option value="">— Välj tjänst (valfritt) —</option>
+                      {svcs.map((s:string)=>(
+                        <option key={s} value={s}>{svcLabel(s)}</option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })()}
+              {/* Processteg (om tjänst vald) */}
+              {calAddCustomerId&&calAddService&&(()=>{
+                const cust=customers.find(c=>c.id===calAddCustomerId)
+                if(!cust)return null
+                const steps=getSteps(calAddService,cust.include_fogsand)
+                if(!steps.length)return null
+                return(
+                  <div style={{marginBottom:16}}>
+                    <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:6,color:C.text}}>Uppdatera processteg (valfritt)</label>
+                    <select value={calAddStep} onChange={e=>setCalAddStep(Number(e.target.value))} style={inp}>
+                      <option value={0}>— Ändra ej —</option>
+                      {steps.filter(st=>st.id>0).map(st=>(
+                        <option key={st.id} value={st.id}>{st.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })()}
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',flexWrap:'wrap' as const}}>
+                <button onClick={()=>setCalAddModal(false)} style={btn('#64748b')}>Avbryt</button>
+                <button onClick={saveCalAdd} disabled={!calAddCustomerId||!calAddDate} style={btn((!calAddCustomerId||!calAddDate)?'#64748b':C.primary)}><i className="fas fa-calendar-plus"/> Spara jobb</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showBookedDateModal&&bookedDateCustomer&&(
         <div style={{...modalOverlay,zIndex:1002}} onClick={e=>{if(e.target===e.currentTarget)setShowBookedDateModal(false)}}>
           <div style={modalBox(440)}>
@@ -1804,13 +1914,15 @@ function CustomerCard({c,C,onClick}:{c:any,C:any,onClick:()=>void}){
   const svcs=getServices(c),kvm=getKvm(c)
   const svcStr=svcs.map((s:string)=>`${svcLabel(s)} (${kvm[s]||0}kvm)`).join(', ')
   const price=parseFloat(c.price_excl_vat)||0
+  const statusColors:Record<string,string>={new:'#f59e0b',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
+  const topColor=statusColors[status]||'#888'
   return(
-    <div onClick={onClick} style={{background:C.surface,padding:18,borderRadius:10,border:`1px solid ${C.border}`,cursor:'pointer',transition:'border-color 0.15s,box-shadow 0.15s'}}
+    <div onClick={onClick} style={{background:C.surface,padding:18,borderRadius:12,border:`1px solid ${C.border}`,borderTop:`3px solid ${topColor}`,cursor:'pointer',transition:'border-color 0.15s,box-shadow 0.15s'}}
       onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.primary;(e.currentTarget as HTMLElement).style.boxShadow=`0 0 0 1px ${C.primary}22`}}
       onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.border;(e.currentTarget as HTMLElement).style.boxShadow='none'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
         <div>
-          <div style={{fontSize:18,fontWeight:600,color:C.text,marginBottom:4}}>{c.name}</div>
+          <div style={{fontSize:16,fontWeight:600,color:C.text,marginBottom:4}}>{c.name}</div>
           <div style={{fontSize:13,color:C.textSec}}>{svcStr}</div>
         </div>
         <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}}>
@@ -1826,7 +1938,7 @@ function CustomerCard({c,C,onClick}:{c:any,C:any,onClick:()=>void}){
       {c.note&&<div style={{fontSize:12,color:C.text,background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.3)',padding:'6px 10px',borderRadius:6,marginBottom:12}}>📝 {c.note}</div>}
       <div style={{paddingTop:12,borderTop:`1px solid ${C.border}`}}>
         <div style={{fontSize:12,color:C.textSec,marginBottom:6}}>Framsteg: {prog}%</div>
-        <div style={{height:8,background:C.bg,borderRadius:9999,overflow:'hidden'}}>
+        <div style={{height:6,background:C.bg,borderRadius:9999,overflow:'hidden'}}>
           <div style={{height:'100%',width:`${prog}%`,background:C.primary,borderRadius:9999,transition:'width 0.3s'}}/>
         </div>
       </div>
@@ -1941,7 +2053,7 @@ function DonutChart({data,C}:{data:{label:string,value:number,color:string}[],C:
 
 /* ─── STAT PAGE ──────────────────────────────────────────────── */
 function StatPage({customers,allLogs,C,isMobile}:any){
-  const GOAL=1_000_000
+  const GOAL=2_500_000
   const completedJobs=customers.filter((c:any)=>!c.rejected&&(parseFloat(c.price_excl_vat)||0)>0&&(getStatus(c)==='completed'||getStatus(c)==='in_progress'))
   const totalRev=completedJobs.reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0)
   const avgRev=completedJobs.length?Math.round(totalRev/completedJobs.length):0
@@ -2006,7 +2118,7 @@ function StatPage({customers,allLogs,C,isMobile}:any){
           </div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:6,gap:8,flexWrap:'wrap' as const}}>
-              <span style={{fontWeight:700,fontSize:13,color:C.text}}>Årsmål: 1 000 000 kr</span>
+              <span style={{fontWeight:700,fontSize:13,color:C.text}}>Årsmål: 2 500 000 kr</span>
               <span style={{fontWeight:700,fontSize:14,color:goalPct>=100?'#10b981':C.primary,whiteSpace:'nowrap'}}>
                 {fmtCur(totalRev)}{' '}<span style={{fontSize:11,color:C.textSec,fontWeight:400}}>({goalPct}%)</span>
               </span>

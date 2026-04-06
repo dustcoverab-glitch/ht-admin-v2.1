@@ -5,8 +5,6 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   imageUrl?: string
-  cost?: number
-  model?: string
   loading?: boolean
 }
 
@@ -23,31 +21,37 @@ interface Props {
   C?: Colors
 }
 
+const QUICK_ACTIONS = [
+  { label: '📋 Visa aktiva kunder', msg: 'Visa alla aktiva kunder' },
+  { label: '📍 Var är vi i processen?', msg: 'Vilket processteg är vi på för alla aktiva kunder?' },
+  { label: '⏱️ Logga tid', msg: 'Logga tid — vilken kund och hur länge?' },
+  { label: '➕ Ny kund', msg: 'Skapa en ny kund' },
+  { label: '📊 Statistik', msg: 'Visa statistik och omsättning' },
+  { label: '📅 Kommande jobb', msg: 'Visa alla bokade jobb den här veckan' },
+]
 
 export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
-  const surface  = C?.surface  ?? (dark ? '#1e293b' : '#ffffff')
-  const bg       = C?.bg       ?? (dark ? '#0f172a' : '#f8fafc')
-  const border   = C?.border   ?? (dark ? '#334155' : '#e2e8f0')
-  const textMain = C?.text     ?? (dark ? '#e2e8f0' : '#1e293b')
-  const textSec  = C?.textSec  ?? (dark ? '#94a3b8' : '#64748b')
-  const primary  = C?.primary  ?? '#2563eb'
-  const inputBg  = C?.input    ?? (dark ? '#1e293b' : '#ffffff')
-  const inputBdr = C?.inputBorder ?? (dark ? '#334155' : '#e2e8f0')
+  const surface  = C?.surface  ?? (dark ? '#111111' : '#ffffff')
+  const bg       = C?.bg       ?? (dark ? '#000000' : '#f8fafc')
+  const border   = C?.border   ?? (dark ? '#222222' : '#e2e8f0')
+  const textMain = C?.text     ?? (dark ? '#ededed' : '#1e293b')
+  const textSec  = C?.textSec  ?? (dark ? '#888888' : '#64748b')
+  const primary  = C?.primary  ?? '#3b82f6'
+  const inputBg  = C?.input    ?? (dark ? '#111111' : '#ffffff')
+  const inputBdr = C?.inputBorder ?? (dark ? '#333333' : '#e2e8f0')
 
-  const [messages, setMessages] = useState<Message[]>([
-    { role:'assistant', content:'Hej! Jag är din AI-assistent.\n\nJag kan:\n• Skapa och uppdatera kunder\n• Svara på frågor om kunder\n• Läsa av bilder/skärmbilder\n\nVad kan jag hjälpa dig med?' }
-  ])
+  const [messages, setMessages] = useState<Message[]>([])
   const [input,            setInput]           = useState('')
   const [loading,          setLoading]         = useState(false)
   const [pendingImage,     setPendingImage]    = useState<string|null>(null)
   const [pendingImageName, setPendingImageName]= useState<string|null>(null)
+  const [showQuick,        setShowQuick]       = useState(true)
 
   const fileRef     = useRef<HTMLInputElement>(null)
   const bottomRef   = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:'smooth'}) }, [messages])
-  useEffect(()=>{ if(!input && textareaRef.current) textareaRef.current.style.height='38px' }, [input])
 
   function autoResize(){
     const el=textareaRef.current; if(!el)return
@@ -55,42 +59,25 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
     el.style.height=Math.min(el.scrollHeight,160)+'px'
   }
 
-  // ✅ FIXAD: ingen aggressiv komprimering – bevarar kvalitet för AI-läsning
   function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-
     const reader = new FileReader()
     reader.onload = ev => {
       const src = ev.target?.result as string
       const img = new Image()
       img.onload = () => {
-        const MAX = 1920 // max bredd/höjd i px – tillräckligt för AI att läsa text
-
-        // Om bilden redan är liten nog → skicka direkt utan canvas (bäst kvalitet)
+        const MAX = 1920
         if (img.width <= MAX && img.height <= MAX) {
-          setPendingImage(src)
-          setPendingImageName(file.name)
-          return
+          setPendingImage(src); setPendingImageName(file.name); return
         }
-
-        // Annars → skala ner proportionerligt
-        const scale  = MAX / Math.max(img.width, img.height)
-        const w      = Math.round(img.width  * scale)
-        const h      = Math.round(img.height * scale)
+        const scale = MAX / Math.max(img.width, img.height)
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale)
         const canvas = document.createElement('canvas')
-        canvas.width  = w
-        canvas.height = h
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(img, 0, 0, w, h)
-
-        // PNG för skärmdumpar/text (förlustfritt), JPEG 0.95 för foton
+        canvas.width = w; canvas.height = h
+        canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
         const isPhoto = file.type === 'image/jpeg' || file.type === 'image/jpg'
-        const result  = isPhoto
-          ? canvas.toDataURL('image/jpeg', 0.95) // hög kvalitet för foton
-          : canvas.toDataURL('image/png')         // förlustfritt för skärmdumpar
-
-        setPendingImage(result)
+        setPendingImage(isPhoto ? canvas.toDataURL('image/jpeg', 0.95) : canvas.toDataURL('image/png'))
         setPendingImageName(file.name)
       }
       img.src = src
@@ -99,125 +86,152 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
     e.target.value = ''
   }
 
-  async function sendMessage(){
-    const text=input.trim()
-    if(!text && !pendingImage)return
+  async function sendMessage(overrideText?: string){
+    const text = (overrideText ?? input).trim()
+    if(!text && !pendingImage) return
 
-    const userMsg:Message={ role:'user', content:text||`[Bild: ${pendingImageName}]`, imageUrl:pendingImage??undefined }
-    setMessages(prev=>[...prev, userMsg, {role:'assistant',content:'',loading:true}])
+    setShowQuick(false)
+    const userMsg: Message = { role:'user', content: text || `[Bild: ${pendingImageName}]`, imageUrl: pendingImage ?? undefined }
+    setMessages(prev=>[...prev, userMsg, {role:'assistant', content:'', loading:true}])
     setInput(''); setPendingImage(null); setPendingImageName(null); setLoading(true)
 
     try {
-      const messageText = pendingImage
-        ? (text || 'Läs av bilden.')
-        : text
-
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: messageText,
-          messages: [{ role: 'user', content: messageText }],
+          message: text || 'Läs av bilden.',
           sessionId: 'admin-session',
           imageUrl: pendingImage ?? undefined,
           hasImage: !!pendingImage,
         }),
       })
-
       const data = await res.json()
-
-      if(data.error){
-        setMessages(prev=>prev.slice(0,-1).concat({role:'assistant',content:`Fel: ${data.error}`}))
-        return
-      }
-
-      let msgCost=0 // Claude kostar men vi visar inte öre
-
-      setMessages(prev=>prev.slice(0,-1).concat({
-        role:'assistant',
-        content:data.reply||'(Inget svar)',
-        cost:msgCost,
-        model:data.model,
+      setMessages(prev => prev.slice(0,-1).concat({
+        role: 'assistant',
+        content: data.error ? `❌ Fel: ${data.error}` : (data.reply || '(Inget svar)'),
       }))
-
-      if(data.actions?.length>0) onAction()
-
+      if (data.actions?.length > 0) onAction()
     } catch(err:any){
-      setMessages(prev=>prev.slice(0,-1).concat({role:'assistant',content:`Fel: ${err.message}`}))
+      setMessages(prev => prev.slice(0,-1).concat({ role:'assistant', content:`❌ Fel: ${err.message}` }))
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div style={{width:'100%',height:'100%',display:'flex',flexDirection:'column',background:surface,borderLeft:`1px solid ${border}`}}>
+    <div style={{width:'100%',height:'100%',display:'flex',flexDirection:'column',background:surface}}>
+      <style>{`
+        @keyframes aiDot{0%,80%,100%{transform:scale(0.7);opacity:0.3}40%{transform:scale(1.1);opacity:1}}
+        @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+        .ai-msg{animation:fadeIn 0.2s ease}
+        .ai-quick:hover{background:rgba(59,130,246,0.12)!important;border-color:#3b82f6!important}
+      `}</style>
 
       {/* Header */}
-      <div style={{padding:'14px 16px',borderBottom:`1px solid ${border}`,display:'flex',alignItems:'center',justifyContent:'space-between',background:surface,flexShrink:0}}>
-        <div style={{display:'flex',alignItems:'center',gap:8}}>
-          <div style={{width:8,height:8,borderRadius:'50%',background:'#C9A84C',boxShadow:'0 0 6px rgba(201,168,76,0.7)'}}/>
-          <span style={{fontSize:14,fontWeight:600,color:textMain}}>AI-assistent</span>
+      <div style={{padding:'14px 16px',borderBottom:`1px solid ${border}`,display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg,#3b82f6,#6366f1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>🤖</div>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color:textMain,letterSpacing:'-0.2px'}}>AI-assistent</div>
+            <div style={{fontSize:10,color:'#10b981',fontWeight:500}}>● Online</div>
+          </div>
         </div>
-        <button onClick={onClose} style={{background:'none',border:'none',color:textSec,cursor:'pointer',fontSize:22,lineHeight:1,padding:'0 2px'}}
-          onMouseEnter={e=>((e.target as HTMLElement).style.color='#ef4444')}
-          onMouseLeave={e=>((e.target as HTMLElement).style.color=textSec)}>×</button>
+        <button onClick={onClose} style={{width:28,height:28,background:'transparent',border:`1px solid ${border}`,borderRadius:6,color:textSec,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}
+          onMouseEnter={e=>((e.target as HTMLElement).style.borderColor='#ef4444')}
+          onMouseLeave={e=>((e.target as HTMLElement).style.borderColor=border)}>✕</button>
       </div>
 
       {/* Messages */}
-      <div style={{flex:1,overflowY:'auto',padding:'14px',display:'flex',flexDirection:'column',gap:12,background:bg}}>
+      <div style={{flex:1,overflowY:'auto',padding:'16px',display:'flex',flexDirection:'column',gap:10,background:bg}}>
+
+        {/* Welcome + Quick actions */}
+        {showQuick && messages.length === 0 && (
+          <div style={{animation:'fadeIn 0.3s ease'}}>
+            <div style={{padding:'16px',background:surface,borderRadius:12,border:`1px solid ${border}`,marginBottom:16}}>
+              <div style={{fontSize:13,fontWeight:700,color:textMain,marginBottom:4}}>Hej! Vad kan jag hjälpa dig med?</div>
+              <div style={{fontSize:12,color:textSec,lineHeight:1.6}}>
+                Jag kan skapa kunder, logga tid, flytta processteg, visa statistik, läsa av bilder och offerter — fråga mig vad som helst om jobbet.
+              </div>
+            </div>
+            <div style={{fontSize:11,fontWeight:700,color:textSec,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:8}}>Snabbval</div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {QUICK_ACTIONS.map(qa => (
+                <button key={qa.msg} className="ai-quick" onClick={() => sendMessage(qa.msg)}
+                  style={{textAlign:'left',padding:'9px 14px',background:'transparent',border:`1px solid ${border}`,borderRadius:8,color:textMain,fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:'inherit',transition:'all 0.15s',width:'100%'}}>
+                  {qa.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {messages.map((msg,i)=>(
-          <div key={i} style={{display:'flex',flexDirection:'column',alignItems:msg.role==='user'?'flex-end':'flex-start',gap:3}}>
-            {msg.imageUrl&&<img src={msg.imageUrl} alt="" style={{maxWidth:200,borderRadius:8,border:`1px solid ${border}`}}/>}
+          <div key={i} className="ai-msg" style={{display:'flex',flexDirection:'column',alignItems:msg.role==='user'?'flex-end':'flex-start',gap:3}}>
+            {msg.imageUrl && <img src={msg.imageUrl} alt="" style={{maxWidth:200,borderRadius:8,border:`1px solid ${border}`}}/>}
             <div style={{
-              maxWidth:'92%',padding:'9px 13px',
-              borderRadius:msg.role==='user'?'14px 14px 4px 14px':'14px 14px 14px 4px',
-              background:msg.role==='user'?'rgba(201,168,76,0.15)':surface,
-              border:msg.role==='user'?'1px solid rgba(201,168,76,0.25)':`1px solid ${border}`,
-              fontSize:13,color:textMain,lineHeight:1.6,whiteSpace:'pre-wrap',wordBreak:'break-word'
+              maxWidth:'92%',padding:'10px 14px',
+              borderRadius: msg.role==='user' ? '14px 14px 4px 14px' : '4px 14px 14px 14px',
+              background: msg.role==='user' ? `${primary}18` : surface,
+              border: msg.role==='user' ? `1px solid ${primary}33` : `1px solid ${border}`,
+              fontSize:13,color:textMain,lineHeight:1.65,whiteSpace:'pre-wrap',wordBreak:'break-word',
             }}>
               {msg.loading
-                ?<div style={{display:'flex',gap:4,padding:'2px 0'}}>
-                  {[0,1,2].map(j=><div key={j} style={{width:6,height:6,borderRadius:'50%',background:'#C9A84C',opacity:0.6,animation:`aiDot 1s ease-in-out ${j*0.18}s infinite`}}/>)}
-                </div>
-                :msg.content}
+                ? <div style={{display:'flex',gap:5,padding:'2px 0',alignItems:'center'}}>
+                    <span style={{fontSize:11,color:textSec,marginRight:4}}>Tänker</span>
+                    {[0,1,2].map(j=><div key={j} style={{width:5,height:5,borderRadius:'50%',background:primary,animation:`aiDot 1s ease-in-out ${j*0.18}s infinite`}}/>)}
+                  </div>
+                : msg.content
+              }
             </div>
-            {msg.cost!==undefined&&msg.cost>0&&<span style={{fontSize:10,color:textSec}}>{(msg.cost*100).toFixed(4)} öre · {msg.model}</span>}
           </div>
         ))}
+
+        {/* Quick actions again after conversation */}
+        {!showQuick && !loading && messages.length > 0 && (
+          <button onClick={() => setShowQuick(true)}
+            style={{alignSelf:'center',marginTop:4,padding:'5px 14px',background:'transparent',border:`1px solid ${border}`,borderRadius:9999,fontSize:11,color:textSec,cursor:'pointer',fontFamily:'inherit'}}>
+            + Snabbval
+          </button>
+        )}
+
         <div ref={bottomRef}/>
       </div>
 
       {/* Pending image */}
-      {pendingImage&&(
+      {pendingImage && (
         <div style={{padding:'8px 14px',borderTop:`1px solid ${border}`,display:'flex',alignItems:'center',gap:8,background:surface,flexShrink:0}}>
           <img src={pendingImage} alt="" style={{height:40,borderRadius:6,border:`1px solid ${border}`}}/>
           <span style={{fontSize:12,color:textSec,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pendingImageName}</span>
-          <button onClick={()=>{setPendingImage(null);setPendingImageName(null)}} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:18}}>×</button>
+          <button onClick={()=>{setPendingImage(null);setPendingImageName(null)}} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:18,lineHeight:1}}>×</button>
         </div>
       )}
 
       {/* Input */}
-      <div style={{padding:'10px 14px',borderTop:`1px solid ${border}`,background:surface,flexShrink:0}}>
+      <div style={{padding:'12px 14px',borderTop:`1px solid ${border}`,background:surface,flexShrink:0}}>
         <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
-          <button onClick={()=>fileRef.current?.click()} style={{width:36,height:36,flexShrink:0,borderRadius:8,background:inputBg,border:`1px solid ${inputBdr}`,color:textSec,cursor:'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center'}}>📎</button>
-          <textarea
-            ref={textareaRef}
-            value={input}
+          <button onClick={()=>fileRef.current?.click()} title="Bifoga bild"
+            style={{width:36,height:36,flexShrink:0,borderRadius:8,background:inputBg,border:`1px solid ${inputBdr}`,color:textSec,cursor:'pointer',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',transition:'border-color 0.15s'}}
+            onMouseEnter={e=>(e.currentTarget.style.borderColor=primary)}
+            onMouseLeave={e=>(e.currentTarget.style.borderColor=inputBdr)}>
+            📎
+          </button>
+          <textarea ref={textareaRef} value={input}
             onChange={e=>{setInput(e.target.value);autoResize()}}
             onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!loading){e.preventDefault();sendMessage()}}}
-            placeholder="Skriv ett meddelande… (Shift+Enter = ny rad)"
-            disabled={loading}
-            rows={1}
-            style={{flex:1,background:inputBg,border:`1px solid ${inputBdr}`,borderRadius:8,padding:'8px 12px',color:textMain,fontSize:13,outline:'none',resize:'none',overflow:'hidden',minHeight:36,maxHeight:160,lineHeight:'1.5',fontFamily:'inherit'}}
-            onFocus={e=>(e.target.style.borderColor='#C9A84C')}
+            placeholder="Fråga om kunder, logga tid, skapa ärenden… (Enter = skicka)"
+            disabled={loading} rows={1}
+            style={{flex:1,background:inputBg,border:`1px solid ${inputBdr}`,borderRadius:8,padding:'8px 12px',color:textMain,fontSize:13,outline:'none',resize:'none',overflow:'hidden',minHeight:36,maxHeight:160,lineHeight:'1.5',fontFamily:'inherit',transition:'border-color 0.15s'}}
+            onFocus={e=>(e.target.style.borderColor=primary)}
             onBlur={e=>(e.target.style.borderColor=inputBdr)}
           />
-          <button onClick={sendMessage} disabled={loading||(!input.trim()&&!pendingImage)} style={{width:36,height:36,flexShrink:0,borderRadius:8,background:loading||(!input.trim()&&!pendingImage)?'rgba(201,168,76,0.3)':'linear-gradient(135deg,#C9A84C,#E8C94A)',border:'none',color:loading||(!input.trim()&&!pendingImage)?textSec:'#0B1120',cursor:loading?'not-allowed':'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,boxShadow:(!loading&&(input.trim()||pendingImage))?'0 2px 8px rgba(201,168,76,0.4)':'none'}}>↑</button>
+          <button onClick={()=>sendMessage()} disabled={loading||(!input.trim()&&!pendingImage)}
+            style={{width:36,height:36,flexShrink:0,borderRadius:8,background:(!loading&&(input.trim()||pendingImage))?`linear-gradient(135deg,${primary},#6366f1)`:`${primary}30`,border:'none',color:(!loading&&(input.trim()||pendingImage))?'white':textSec,cursor:loading?'not-allowed':'pointer',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,transition:'all 0.15s',boxShadow:(!loading&&(input.trim()||pendingImage))?`0 2px 8px ${primary}40`:'none'}}>
+            ↑
+          </button>
         </div>
         <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}} onChange={handleImageUpload}/>
       </div>
-
-      <style>{`@keyframes aiDot{0%,80%,100%{transform:scale(0.7);opacity:0.4}40%{transform:scale(1.2);opacity:1}}`}</style>
     </div>
   )
 }
