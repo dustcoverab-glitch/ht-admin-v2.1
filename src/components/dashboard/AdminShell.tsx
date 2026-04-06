@@ -1184,18 +1184,23 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               <label style={{display:'block',fontSize:14,fontWeight:500,marginBottom:8,color:C.text}}>Tjänster *</label>
               {([['stentvatt','Stentvätt'],['betongtvatt','Betongtvätt'],['altantvatt','Altantvätt'],['asfaltstvatt','Asfaltstvätt']] as [string,string][]).map(([val,lbl])=>(
                 <div key={val} style={{display:'flex',alignItems:'center',gap:12,padding:'8px 0'}}>
-                  <input type="checkbox" checked={newForm.services.includes(val)} onChange={e=>{const s=e.target.checked?[...newForm.services,val]:newForm.services.filter(x=>x!==val);setNewForm({...newForm,services:s})}} style={{width:18,height:18,accentColor:C.primary}}/>
-                  <span style={{fontSize:14,color:C.text}}>{lbl}</span>
+                  <div onClick={()=>{const s=newForm.services.includes(val)?newForm.services.filter(x=>x!==val):[...newForm.services,val];setNewForm({...newForm,services:s})}}
+                    style={{width:18,height:18,borderRadius:4,border:`2px solid ${newForm.services.includes(val)?C.primary:C.border}`,background:newForm.services.includes(val)?C.primary:'transparent',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.15s'}}>
+                    {newForm.services.includes(val)&&<span style={{color:'white',fontSize:11,fontWeight:700,lineHeight:1}}>✓</span>}
+                  </div>
+                  <span style={{fontSize:14,color:C.text,cursor:'pointer'}} onClick={()=>{const s=newForm.services.includes(val)?newForm.services.filter(x=>x!==val):[...newForm.services,val];setNewForm({...newForm,services:s})}}>{lbl}</span>
                   {newForm.services.includes(val)&&<input type="number" placeholder="Kvm" value={newForm.kvm[val]||''} onChange={e=>setNewForm({...newForm,kvm:{...newForm.kvm,[val]:e.target.value}})} style={{...inp,width:110}}/>}
                 </div>
               ))}
             </div>
             {newForm.services.includes('stentvatt')&&(
               <div style={{marginBottom:20}}>
-                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:14,color:C.text,cursor:'pointer'}}>
-                  <input type="checkbox" checked={newForm.fogsand} onChange={e=>setNewForm({...newForm,fogsand:e.target.checked})} style={{accentColor:C.primary}}/>
-                  Inkludera fogsand
-                </label>
+                <div style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}} onClick={()=>setNewForm({...newForm,fogsand:!newForm.fogsand})}>
+                  <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${newForm.fogsand?C.primary:C.border}`,background:newForm.fogsand?C.primary:'transparent',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.15s'}}>
+                    {newForm.fogsand&&<span style={{color:'white',fontSize:11,fontWeight:700,lineHeight:1}}>✓</span>}
+                  </div>
+                  <span style={{fontSize:14,color:C.text}}>Inkludera fogsand</span>
+                </div>
               </div>
             )}
             <div style={{marginBottom:20}}>
