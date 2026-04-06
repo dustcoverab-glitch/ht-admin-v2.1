@@ -146,7 +146,7 @@ function getCustomerProcessStages(c:any):Set<string>{
 }
 
 /* ─── COLOURS ────────────────────────────────────────────────── */
-const LIGHT={bg:'#fafafa',surface:'#ffffff',border:'#eaeaea',text:'#000000',textSec:'#666666',primary:'#3b82f6',sidebar:'#000000',sidebarText:'#888888',input:'#ffffff',inputBorder:'#eaeaea'}
+const LIGHT={bg:'#f4f6f9',surface:'#ffffff',border:'#eaeaea',text:'#000000',textSec:'#666666',primary:'#3b82f6',sidebar:'#1e293b',sidebarText:'#94a3b8',input:'#ffffff',inputBorder:'#eaeaea'}
 const DARK={bg:'#000000',surface:'#111111',border:'#333333',text:'#ededed',textSec:'#888888',primary:'#3b82f6',success:'#10b981',warning:'#f59e0b',danger:'#ef4444',sidebar:'#000000',sidebarText:'#888888',input:'#111111',inputBorder:'#333333'}
 
 /* ─── STATUS BADGE ───────────────────────────────────────────── */
@@ -896,29 +896,6 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
             }
           </div>
 
-          {/* Senaste aktivitet */}
-          <div style={{background:C.surface,padding:isMobile?16:24,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',marginBottom:20}}>
-            <h2 style={{fontSize:isMobile?15:18,fontWeight:600,marginBottom:16,color:C.text,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-history" style={{color:'#f59e0b'}}/> Senaste aktivitet</h2>
-            {recentActivityLogs.length===0
-              ?<div style={{color:C.textSec,fontSize:14}}>Ingen aktivitet ännu.</div>
-              :<div style={{display:'flex',flexDirection:'column',gap:8}}>
-                {recentActivityLogs.map(log=>{
-                  const accentColor=log.log_type==='comment'?C.primary:log.log_type==='status_change'?'#10b981':'#6366f1'
-                  const cust=customers.find(c=>c.id===log.customer_id)
-                  return(
-                    <div key={log.id} style={{padding:'10px 14px',background:`${accentColor}08`,borderRadius:8,border:`1px solid ${accentColor}25`,borderLeft:`3px solid ${accentColor}`,display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
-                      <div>
-                        {cust&&<div style={{fontSize:12,fontWeight:700,color:C.primary,marginBottom:2,cursor:'pointer'}} onClick={()=>openCustomer(cust)}>{cust.name}</div>}
-                        <div style={{fontSize:13,color:C.text}}>{log.content}</div>
-                      </div>
-                      <div style={{fontSize:11,color:C.textSec,flexShrink:0}}>{fmtDate(log.timestamp)}</div>
-                    </div>
-                  )
-                })}
-              </div>
-            }
-          </div>
-
           <div style={{background:C.surface,padding:isMobile?16:24,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
             <h2 style={{fontSize:isMobile?15:18,fontWeight:600,marginBottom:16,color:C.text}}>Aktiva ärenden</h2>
             <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>
@@ -1661,6 +1638,15 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                         <span style={{fontSize:12,color:C.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{current.pdf_name}</span>
                         <button onClick={()=>setPdfViewerOpen(true)} style={{background:'none',border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 10px',color:C.primary,fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
                           <i className="fas fa-eye"/> Öppna
+                        </button>
+                        <button onClick={async()=>{
+                          if(!confirm('Ta bort offerten?'))return
+                          const {updateDoc,doc:fsDoc,deleteField}=await import('firebase/firestore')
+                          const {db:fsDb}=await import('@/lib/firebase')
+                          await updateDoc(fsDoc(fsDb,'customers',current.id),{pdf_name:deleteField(),pdf_base64:deleteField(),pdf_uploaded_at:deleteField()})
+                          setCurrent((p:any)=>{const n={...p};delete n.pdf_name;delete n.pdf_base64;delete n.pdf_uploaded_at;return n})
+                        }} style={{background:'none',border:`1px solid rgba(239,68,68,0.3)`,borderRadius:6,padding:'3px 8px',color:'#ef4444',fontSize:11,cursor:'pointer',fontFamily:'inherit'}}>
+                          <i className="fas fa-times"/>
                         </button>
                       </div>
                     )}
