@@ -242,6 +242,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [calAddService,setCalAddService]=useState('')
   const [calAddStep,setCalAddStep]=useState<number>(0)
   const [calAddSearch,setCalAddSearch]=useState('')
+  const [calAddOperator,setCalAddOperator]=useState<string[]>(['Herman'])
   const [calInternalModal,setCalInternalModal]=useState(false)
   const [calInternalDate,setCalInternalDate]=useState('')
   const [calInternalTime,setCalInternalTime]=useState('08:00')
@@ -417,11 +418,14 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   async function saveCalAdd(){
     const cust=customers.find(c=>c.id===calAddCustomerId)
     if(!cust)return
-    const updateData:any={booked_date:calAddDate,booked_time:calAddTime,booked_end_time:calAddEndTime}
-    if(calAddStep>0&&calAddService){
-      const p={...getProgress(cust)}
-      p[calAddService]=calAddStep
-      updateData.service_progress=p
+    const updateData:any={booked_date:calAddDate,booked_time:calAddTime,booked_end_time:calAddEndTime,booked_operator:calAddOperator}
+    if(calAddStep>0){
+      const svcs=Array.isArray(calAddService)?calAddService:[calAddService].filter(Boolean)
+      if(svcs.length){
+        const p={...getProgress(cust)}
+        svcs.forEach((s:string)=>{p[s]=calAddStep})
+        updateData.service_progress=p
+      }
     }
     await updateDoc(doc(db,'customers',calAddCustomerId),updateData)
     await loadCustomers()
@@ -862,7 +866,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
           </h1>
           {page==='kalender'
             ?<div style={{display:'flex',gap:8}}>
-                <button onClick={()=>{setCalAddDate(new Date().toISOString().split('T')[0]);setCalAddTime('08:00');setCalAddEndTime('10:00');setCalAddCustomerId('');setCalAddSearch('');setCalAddService('');setCalAddStep(0);setCalAddModal(true)}} style={btn(C.primary)}><i className="fas fa-calendar-plus"/>{!isMobile&&' Boka jobb'}</button>
+                <button onClick={()=>{setCalAddDate(new Date().toISOString().split('T')[0]);setCalAddTime('08:00');setCalAddEndTime('10:00');setCalAddCustomerId('');setCalAddSearch('');setCalAddService('');setCalAddStep(0);setCalAddOperator(['Herman']);setCalAddModal(true)}} style={btn(C.primary)}><i className="fas fa-calendar-plus"/>{!isMobile&&' Boka jobb'}</button>
                 <button onClick={()=>{setCalInternalDate(new Date().toISOString().split('T')[0]);setCalInternalTime('08:00');setCalInternalEndTime('09:00');setCalInternalTitle('');setCalInternalNote('');setCalInternalModal(true)}} style={btn('#8b5cf6')}><i className="fas fa-sticky-note"/>{!isMobile&&' Intern'}</button>
               </div>
             :<button onClick={()=>setPage('new-customer')} style={btn(C.primary)}><i className="fas fa-plus"/>{!isMobile&&' Ny kund'}</button>
@@ -1086,46 +1090,69 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                     {hours.map(h=>(
                       <div key={h} style={{position:'absolute' as const,top:(h-HOUR_START)*HOUR_H,left:0,right:0,borderTop:`1px solid ${C.border}`,opacity:0.5}}/>
                     ))}
-                    {/* Jobb-kort */}
-                    {dayJobs.map(c=>{
-                      const statusColors:Record<string,string>={new:'#22c55e',in_progress:C.primary,completed:'#10b981',rejected:'#888888'}
-                      const s=getStatus(c)
-                      const color=statusColors[s]||'#888'
-                      let topPx=0,heightPx=HOUR_H
-                      if(c.booked_time){
-                        const [sh,sm]=(c.booked_time||'07:00').split(':').map(Number)
-                        topPx=(sh-HOUR_START+sm/60)*HOUR_H
-                        if(c.booked_end_time){
-                          const [eh,em]=(c.booked_end_time||'08:00').split(':').map(Number)
-                          const dur=(eh-sh+(em-sm)/60)
-                          heightPx=Math.max(HOUR_H,dur*HOUR_H)
+                    {/* Jobb-kort med overlap-hantering */}
+                    {(()=>{
+                      // Beräkna position för varje jobb
+                      type JPos={top:number,height:number}
+                      const positions:JPos[]=dayJobs.map(c=>{
+                        let top=0,height=HOUR_H
+                        if(c.booked_time){const[sh,sm]=(c.booked_time).split(':').map(Number);top=(sh-HOUR_START+sm/60)*HOUR_H}
+                        if(c.booked_time&&c.booked_end_time){const[sh,sm]=c.booked_time.split(':').map(Number);const[eh,em]=c.booked_end_time.split(':').map(Number);height=Math.max(HOUR_H,(eh-sh+(em-sm)/60)*HOUR_H)}
+                        return{top,height}
+                      })
+                      // Hitta överlappande grupper
+                      const cols:number[]=new Array(dayJobs.length).fill(0)
+                      const totalCols:number[]=new Array(dayJobs.length).fill(1)
+                      for(let a=0;a<dayJobs.length;a++){
+                        let maxCol=0
+                        for(let b=0;b<a;b++){
+                          const aTop=positions[a].top,aBot=aTop+positions[a].height
+                          const bTop=positions[b].top,bBot=bTop+positions[b].height
+                          if(aTop<bBot&&aBot>bTop){cols[a]=Math.max(cols[a],cols[b]+1);maxCol=Math.max(maxCol,cols[a])}
                         }
                       }
-                      const svcs=getServices(c)
-                      return(
-                        <div key={c.id} style={{position:'absolute' as const,top:topPx,left:2,right:2,height:heightPx,background:`${color}18`,border:`1px solid ${color}40`,borderLeft:`3px solid ${color}`,borderRadius:6,overflow:'hidden',zIndex:1,transition:'all 0.15s'}}>
-                          <div onClick={()=>openCustomer(c)} style={{cursor:'pointer',padding:'3px 5px',height:'100%',overflow:'hidden'}}>
-                            {c.booked_time&&<div style={{fontSize:8,color:color,fontWeight:700,lineHeight:1.2}}>{c.booked_time}{c.booked_end_time?`–${c.booked_end_time}`:''}</div>}
-                            <div style={{fontSize:isMobile?9:11,fontWeight:700,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
-                            {heightPx>HOUR_H&&<div style={{fontSize:9,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</div>}
-                            {heightPx>HOUR_H&&svcs.length>0&&<div style={{fontSize:8,color:color,fontWeight:600,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{svcs.map((sv:string)=>svcLabel(sv)).join(', ')}</div>}
+                      for(let a=0;a<dayJobs.length;a++){
+                        for(let b=0;b<dayJobs.length;b++){
+                          if(a===b)continue
+                          const aTop=positions[a].top,aBot=aTop+positions[a].height
+                          const bTop=positions[b].top,bBot=bTop+positions[b].height
+                          if(aTop<bBot&&aBot>bTop)totalCols[a]=Math.max(totalCols[a],cols[b]+1)
+                        }
+                      }
+                      return dayJobs.map((c,idx)=>{
+                        const statusColors:Record<string,string>={new:'#22c55e',in_progress:C.primary,completed:'#10b981',rejected:'#888888'}
+                        const s=getStatus(c),color=statusColors[s]||'#888'
+                        const{top:topPx,height:heightPx}=positions[idx]
+                        const col=cols[idx],total=Math.max(totalCols[idx],1)
+                        const colW=`${100/total}%`,colL=`calc(${col*100/total}% + 2px)`
+                        const svcs=getServices(c)
+                        const ops:string[]=Array.isArray(c.booked_operator)?c.booked_operator:c.booked_operator?[c.booked_operator]:[]
+                        return(
+                          <div key={c.id} style={{position:'absolute' as const,top:topPx,left:colL,width:`calc(${colW} - 4px)`,height:heightPx,background:`${color}18`,border:`1px solid ${color}40`,borderLeft:`3px solid ${color}`,borderRadius:6,overflow:'hidden',zIndex:1,transition:'all 0.15s'}}>
+                            <div onClick={()=>openCustomer(c)} style={{cursor:'pointer',padding:'3px 5px',height:'100%',overflow:'hidden'}}>
+                              {c.booked_time&&<div style={{fontSize:8,color:color,fontWeight:700,lineHeight:1.2}}>{c.booked_time}{c.booked_end_time?`–${c.booked_end_time}`:''}</div>}
+                              <div style={{fontSize:isMobile?9:11,fontWeight:700,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
+                              {heightPx>HOUR_H&&<div style={{fontSize:9,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</div>}
+                              {heightPx>HOUR_H&&svcs.length>0&&<div style={{fontSize:8,color:color,fontWeight:600,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{svcs.map((sv:string)=>svcLabel(sv)).join(', ')}</div>}
+                              {ops.length>0&&<div style={{fontSize:8,color:'#8b5cf6',fontWeight:700,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ops.join(' & ')}</div>}
+                            </div>
+                            {/* Redigera + ta bort knappar */}
+                            <div style={{position:'absolute',bottom:4,right:4,display:'flex',gap:3,zIndex:2}}>
+                              <button onClick={e=>{e.stopPropagation();setCalAddDate(c.booked_date||dateStr);setCalAddTime(c.booked_time||'08:00');setCalAddEndTime(c.booked_end_time||'10:00');setCalAddCustomerId(c.id);setCalAddSearch(c.name);setCalAddService(getServices(c));setCalAddOperator(Array.isArray(c.booked_operator)?c.booked_operator:c.booked_operator?[c.booked_operator]:['Herman']);setCalAddStep(0);setCalAddModal(true)}}
+                                title="Redigera bokning"
+                                style={{width:20,height:20,background:`${color}30`,border:`1px solid ${color}50`,borderRadius:4,color:color,cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
+                                ✏
+                              </button>
+                              <button onClick={e=>{e.stopPropagation();removeFromCalendar(c.id)}}
+                                title="Ta bort från kalender"
+                                style={{width:20,height:20,background:'rgba(239,68,68,0.15)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,color:'#ef4444',cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
+                                ✕
+                              </button>
+                            </div>
                           </div>
-                          {/* Redigera + ta bort knappar */}
-                          <div style={{position:'absolute',bottom:4,right:4,display:'flex',gap:3,zIndex:2}}>
-                            <button onClick={e=>{e.stopPropagation();setCalAddDate(c.booked_date||dateStr);setCalAddTime(c.booked_time||'08:00');setCalAddEndTime(c.booked_end_time||'10:00');setCalAddCustomerId(c.id);setCalAddSearch(c.name);setCalAddService(getServices(c)[0]||'');setCalAddStep(0);setCalAddModal(true)}}
-                              title="Redigera bokning"
-                              style={{width:20,height:20,background:`${color}30`,border:`1px solid ${color}50`,borderRadius:4,color:color,cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
-                              ✏
-                            </button>
-                            <button onClick={e=>{e.stopPropagation();removeFromCalendar(c.id)}}
-                              title="Ta bort från kalender"
-                              style={{width:20,height:20,background:'rgba(239,68,68,0.15)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,color:'#ef4444',cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
-                              ✕
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
+                        )
+                      })
+                    })()}
                     {/* Interna händelser */}
                     {internalEvents.filter(ev=>ev.date===dateStr).map(ev=>{
                       let topPx=0,heightPx=HOUR_H
@@ -1924,8 +1951,8 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                     <label style={{display:'block',fontSize:13,fontWeight:600,marginBottom:8,color:C.text}}>Tjänst</label>
                     <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
                       {svcs.map((s:string)=>(
-                        <button key={s} onClick={()=>{setCalAddService(s===calAddService?'':s);setCalAddStep(0)}}
-                          style={{padding:'6px 14px',borderRadius:9999,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',border:`1.5px solid ${calAddService===s?C.primary:C.border}`,background:calAddService===s?C.primary:'transparent',color:calAddService===s?'white':C.text,transition:'all 0.15s'}}>
+                        <button key={s} onClick={()=>{setCalAddService((prev:any)=>{const arr=Array.isArray(prev)?prev:[prev].filter(Boolean);return arr.includes(s)?arr.filter((x:string)=>x!==s):[...arr,s]});setCalAddStep(0)}}
+                          style={{padding:'6px 14px',borderRadius:9999,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',border:`1.5px solid ${(Array.isArray(calAddService)?calAddService:[calAddService]).includes(s)?C.primary:C.border}`,background:(Array.isArray(calAddService)?calAddService:[calAddService]).includes(s)?C.primary:'transparent',color:(Array.isArray(calAddService)?calAddService:[calAddService]).includes(s)?'white':C.text,transition:'all 0.15s'}}>
                           {svcLabel(s)}
                         </button>
                       ))}
@@ -1952,6 +1979,21 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                   </div>
                 )
               })()}
+              {/* Operatör */}
+              <div style={{marginBottom:16}}>
+                <label style={{display:'block',fontSize:13,fontWeight:600,marginBottom:8,color:C.text}}>Operatör</label>
+                <div style={{display:'flex',gap:8}}>
+                  {(['Herman','Ture'] as string[]).map(op=>{
+                    const sel=calAddOperator.includes(op)
+                    return(
+                      <button key={op} onClick={()=>setCalAddOperator((prev:string[])=>prev.includes(op)?prev.filter(x=>x!==op):[...prev,op])}
+                        style={{padding:'6px 18px',borderRadius:9999,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',border:`1.5px solid ${sel?'#10b981':C.border}`,background:sel?'#10b981':'transparent',color:sel?'white':C.text,transition:'all 0.15s'}}>
+                        {op}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
               <div style={{display:'flex',gap:10,justifyContent:'flex-end',flexWrap:'wrap' as const,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
                 <button onClick={()=>setCalAddModal(false)} style={btn('#64748b')}>Avbryt</button>
                 <button onClick={saveCalAdd} disabled={!calAddCustomerId||!calAddDate} style={{...btn((!calAddCustomerId||!calAddDate)?'#333':C.primary),opacity:(!calAddCustomerId||!calAddDate)?0.5:1}}><i className="fas fa-calendar-plus"/> Spara</button>
