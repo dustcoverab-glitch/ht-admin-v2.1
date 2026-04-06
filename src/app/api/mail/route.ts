@@ -116,9 +116,18 @@ export async function POST(req: NextRequest) {
     const token = await getToken()
     if (!token) return NextResponse.json({ success: false, error: 'Not authenticated' })
 
+    // Bygg HTML-mail med signatur och logga
+    const logoUrl = 'https://ht-admin-v2-1.vercel.app/ht-logo.png'
+    const bodyLines = body.body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')
+    const htmlBody = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.6;max-width:600px">
+${bodyLines}
+<br><br>
+<img src="${logoUrl}" alt="HT Ytrengöring" style="width:140px;height:auto;margin-top:8px;opacity:0.9" />
+</div>`
+
     const message: any = {
       subject: body.subject,
-      body: { contentType: 'Text', content: body.body },
+      body: { contentType: 'HTML', content: htmlBody },
       toRecipients: [{ emailAddress: { address: body.to } }],
     }
     if (body.attachments?.length) {
