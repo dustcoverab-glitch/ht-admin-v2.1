@@ -152,11 +152,11 @@ export async function GET(req: NextRequest) {
     const { token } = await getTokenObj()
     if (!token) return NextResponse.json({ emails: [], error: 'Not authenticated' })
     const email = searchParams.get('email') || ''
-    // Search for all messages from/to this email
-    const filter = encodeURIComponent(`from/emailAddress/address eq '${email}' or toRecipients/any(r:r/emailAddress/address eq '${email}')`)
+    // Use search for flexible matching (from OR to)
+    const searchQ = encodeURIComponent(`"${email}"`)
     const r = await fetch(
-      `https://graph.microsoft.com/v1.0/me/messages?$top=50&$orderby=receivedDateTime desc&$filter=${filter}&$select=id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
-      { headers: { Authorization: `Bearer ${token}` } }
+      `https://graph.microsoft.com/v1.0/me/messages?$top=50&$search=${searchQ}&$select=id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
+      { headers: { Authorization: `Bearer ${token}`, ConsistencyLevel: 'eventual' } }
     )
     const d = await r.json()
     if (!d.value) return NextResponse.json({ emails: [], error: d.error?.message })
@@ -300,11 +300,11 @@ ${bodyLines}
     const { token } = await getTokenObj()
     if (!token) return NextResponse.json({ emails: [], error: 'Not authenticated' })
     const email = searchParams.get('email') || ''
-    // Search for all messages from/to this email
-    const filter = encodeURIComponent(`from/emailAddress/address eq '${email}' or toRecipients/any(r:r/emailAddress/address eq '${email}')`)
+    // Use search for flexible matching (from OR to)
+    const searchQ = encodeURIComponent(`"${email}"`)
     const r = await fetch(
-      `https://graph.microsoft.com/v1.0/me/messages?$top=50&$orderby=receivedDateTime desc&$filter=${filter}&$select=id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
-      { headers: { Authorization: `Bearer ${token}` } }
+      `https://graph.microsoft.com/v1.0/me/messages?$top=50&$search=${searchQ}&$select=id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
+      { headers: { Authorization: `Bearer ${token}`, ConsistencyLevel: 'eventual' } }
     )
     const d = await r.json()
     if (!d.value) return NextResponse.json({ emails: [], error: d.error?.message })

@@ -181,12 +181,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
-          message: `Extrahera kunduppgifter från detta mail och returnera ENBART ett JSON-objekt med fälten: name, phone, email, address, note. Om ett fält saknas, sätt det till "". Mailtexten:
-
-Från: ${selected.from}
-Ämne: ${selected.subject}
-
-${selected.body}`,
+          message: `Extrahera kunduppgifter från detta mail. Avsändarens uppgifter är primär källa.\n\nAVSÄNDARE:\nNamn: ${selected.fromName || selected.from}\nE-post: ${selected.from}\n\nMAILINNEHÅLL:\nÄmne: ${selected.subject}\n${selected.body}\n\nReturnera ENBART JSON: {"name":"<avsändarens namn>","phone":"<telefon eller >","email":"<avsändarens mail>","address":"<adress eller >","note":"<vad kunden vill>"}`,
           customers: []
         })
       })
@@ -195,7 +190,8 @@ ${selected.body}`,
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         const data = JSON.parse(jsonMatch[0])
-        data.email = data.email || selected.from
+        if (!data.email || data.email === '') data.email = selected.from
+          if (!data.name || data.name === '') data.name = selected.fromName || selected.from.split('@')[0]
         await autoCreateCustomer(data)
       } else {
         setAutoCreateStatus('AI kunde inte extrahera uppgifter')
@@ -350,12 +346,7 @@ ${selected.body}`,
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
-          message: `Extrahera kunduppgifter från detta mail och returnera ENBART ett JSON-objekt med fälten: name, phone, email, address, note. Om ett fält saknas, sätt det till "". Mailtexten:
-
-Från: ${selected.from}
-Ämne: ${selected.subject}
-
-${selected.body}`,
+          message: `Extrahera kunduppgifter från detta mail. Avsändarens uppgifter är primär källa.\n\nAVSÄNDARE:\nNamn: ${selected.fromName || selected.from}\nE-post: ${selected.from}\n\nMAILINNEHÅLL:\nÄmne: ${selected.subject}\n${selected.body}\n\nReturnera ENBART JSON: {"name":"<avsändarens namn>","phone":"<telefon eller >","email":"<avsändarens mail>","address":"<adress eller >","note":"<vad kunden vill>"}`,
           customers: []
         })
       })
@@ -364,7 +355,8 @@ ${selected.body}`,
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         const data = JSON.parse(jsonMatch[0])
-        data.email = data.email || selected.from
+        if (!data.email || data.email === '') data.email = selected.from
+          if (!data.name || data.name === '') data.name = selected.fromName || selected.from.split('@')[0]
         await autoCreateCustomer(data)
       } else {
         setAutoCreateStatus('AI kunde inte extrahera uppgifter')
