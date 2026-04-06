@@ -119,15 +119,33 @@ export default function MailPage({ customers, C, isMobile }: any) {
     } catch { setConnected(false) }
   }
 
+  const [nextLink, setNextLink] = useState<string|null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+
   async function loadEmails(f: string) {
     if (f === 'drafts' || f === 'compose') return
+    const folderParam = f === 'archive' ? 'archive' : f
     setLoading(true)
+    setNextLink(null)
     try {
-      const r = await fetch(`/api/mail?action=list&folder=${f}`)
+      const r = await fetch(`/api/mail?action=list&folder=${folderParam}`)
       const d = await r.json()
       setEmails(d.emails || [])
+      setNextLink(d.nextLink || null)
     } catch {}
     setLoading(false)
+  }
+
+  async function loadMoreEmails() {
+    if (!nextLink) return
+    setLoadingMore(true)
+    try {
+      const r = await fetch(`/api/mail?action=list_next&nextLink=${encodeURIComponent(nextLink)}`)
+      const d = await r.json()
+      setEmails(prev => [...prev, ...(d.emails || [])])
+      setNextLink(d.nextLink || null)
+    } catch {}
+    setLoadingMore(false)
   }
 
   async function loadDrafts() {
@@ -515,6 +533,14 @@ export default function MailPage({ customers, C, isMobile }: any) {
                 </div>
               )
             })}
+          {nextLink && (
+            <div style={{ padding: '12px', textAlign: 'center', borderTop: `1px solid ${C.border}` }}>
+              <button onClick={loadMoreEmails} disabled={loadingMore}
+                style={{ padding: '7px 20px', background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: C.textSec, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+                {loadingMore ? <><i className="fas fa-spinner fa-spin"/> Laddar...</> : <><i className="fas fa-chevron-down"/> Ladda fler mail</>}
+              </button>
+            </div>
+          )}
           </div>
         </div>
       )}
@@ -627,19 +653,36 @@ export default function MailPage({ customers, C, isMobile }: any) {
             <div style={{ flex: 1, overflowY: 'auto', padding: '0 0 40px' }}>
               {/* Tråd — tidigare mail */}
               {threadEmails.length > 0 && (
-                <div style={{ padding: '12px 22px', borderBottom: `1px solid ${C.border}`, background: `${C.bg}` }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: C.textSec, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <i className="fas fa-comments"/> TRÅD — {threadEmails.length} tidigare {threadEmails.length === 1 ? 'mail' : 'mail'}
+                <div style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <div style={{ padding: '8px 22px', background: C.bg, fontSize: 11, fontWeight: 600, color: C.textSec, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i className="fas fa-code-branch"/> Tråd ({threadEmails.length + 1} mail)
                   </div>
-                  {threadEmails.map(m => (
-                    <div key={m.id} style={{ marginBottom: 8, padding: '8px 12px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, borderLeft: `3px solid ${C.primary}40` }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec }}>{m.fromName || m.from}</span>
-                        <span style={{ fontSize: 10, color: C.textSec }}>{new Date(m.date).toLocaleString('sv-SE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
+                  {threadEmails.map((m,idx) => {
+                    const isMe = !m.from?.toLowerCase().includes(selected?.from?.split('@')[1] || '___')
+                    return (
+                      <div key={m.id} style={{ borderTop: `1px solid ${C.border}`, padding: '14px 22px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          <div style={{ width: 28, height: 28, borderRadius: '50%', background: isMe ? `${C.primary}20` : '#10b98120', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <i className={isMe ? 'fas fa-user' : 'fas fa-user-tie'} style={{ fontSize: 11, color: isMe ? C.primary : '#10b981' }}/>
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{m.fromName || m.from}</div>
+                            <div style={{ fontSize: 10, color: C.textSec }}>{m.from}</div>
+                          </div>
+                          <div style={{ fontSize: 11, color: C.textSec, flexShrink: 0 }}>
+                            {new Date(m.date).toLocaleString('sv-SE',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
+                          </div>
+                        </div>
+                        <div style={{ paddingLeft: 36, fontSize: 13, color: C.text, lineHeight: 1.7, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                          {m.body?.split('\n').filter((_:string,i:number,a:string[])=>i<a.length-3||a.slice(i).some((l:string)=>l.trim())).join('\n')}
+                        </div>
                       </div>
-                      <pre style={{ fontSize: 12, color: C.textSec, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0, maxHeight: 80, overflow: 'hidden', lineHeight: 1.5 }}>{m.body}</pre>
-                    </div>
-                  ))}
+                    )
+                  })}
+                  {/* Current mail separator */}
+                  <div style={{ padding: '6px 22px', background: `${C.primary}08`, borderTop: `1px solid ${C.border}`, fontSize: 11, fontWeight: 600, color: C.primary }}>
+                    <i className="fas fa-arrow-down"/> Senaste mail
+                  </div>
                 </div>
               )}
 

@@ -59,7 +59,17 @@ export async function GET(req: NextRequest) {
     if (!token) return NextResponse.json({ emails: [], error: 'Not authenticated', authUrl: getAuthUrl() })
 
     const folderParam = searchParams.get('folder')
-    const folder = folderParam === 'sent' ? 'sentItems' : folderParam === 'drafts' ? 'drafts' : 'inbox'
+    let folder = folderParam === 'sent' ? 'sentItems' : folderParam === 'drafts' ? 'drafts' : 'inbox'
+    // For archive, look up the Arkiverat folder id
+    if (folderParam === 'archive') {
+      const { token: tok2 } = await getTokenObj()
+      if (tok2) {
+        const fr = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders?$top=50', { headers: { Authorization: `Bearer ${tok2}` } })
+        const fd = await fr.json()
+        const archiveFolder = (fd.value || []).find((f: any) => f.displayName === 'Arkiverat')
+        folder = archiveFolder?.id || 'inbox'
+      }
+    }
     const r = await fetch(
       `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages?$top=100&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
       { headers: { Authorization: `Bearer ${token}` } }
@@ -88,10 +98,11 @@ export async function GET(req: NextRequest) {
       threadId: m.conversationId,
     }))
 
-    const res = NextResponse.json({ emails })
-    if (newAccess) res.cookies.set('ms_access_token', newAccess, { httpOnly: true, secure: true, maxAge: newExpiry, path: '/' })
-    if (newRefresh) res.cookies.set('ms_refresh_token', newRefresh, { httpOnly: true, secure: true, maxAge: 60 * 60 * 24 * 30, path: '/' })
-    return res
+    const nextLink = d['@odata.nextLink'] || null
+    const res2 = NextResponse.json({ emails, nextLink })
+    if (newAccess) res2.cookies.set('ms_access_token', newAccess, { httpOnly: true, secure: true, maxAge: newExpiry, path: '/' })
+    if (newRefresh) res2.cookies.set('ms_refresh_token', newRefresh, { httpOnly: true, secure: true, maxAge: 60 * 60 * 24 * 30, path: '/' })
+    return res2
   }
 
   if (action === 'archive') {
@@ -146,6 +157,27 @@ export async function GET(req: NextRequest) {
     })
     if (r.ok) return NextResponse.json({ success: true })
     return NextResponse.json({ success: false })
+  }
+
+  if (action === 'list_next') {
+    const { token } = await getTokenObj()
+    if (!token) return NextResponse.json({ emails: [] })
+    const nextLink = searchParams.get('nextLink') || ''
+    if (!nextLink) return NextResponse.json({ emails: [] })
+    const r = await fetch(nextLink, { headers: { Authorization: `Bearer ${token}` } })
+    const d = await r.json()
+    if (!d.value) return NextResponse.json({ emails: [] })
+    const emails = d.value.map((m: any) => ({
+      id: m.id, subject: m.subject || '(inget ämne)',
+      from: m.from?.emailAddress?.address || '',
+      fromName: m.from?.emailAddress?.name || '',
+      date: m.receivedDateTime, unread: !m.isRead,
+      preview: m.bodyPreview?.slice(0, 80) || '',
+      body: m.body?.content?.replace(/<style[^>]*>[\s\S]*?<\/style>/gi,'')?.replace(/<[^>]+>/g,'')?.replace(/&nbsp;/g,' ')?.replace(/&amp;/g,'&').replace(/\s{3,}/g,'\n\n')?.trim() || '',
+      replyTo: m.replyTo?.[0]?.emailAddress?.address || m.from?.emailAddress?.address || '',
+      threadId: m.conversationId,
+    }))
+    return NextResponse.json({ emails, nextLink: d['@odata.nextLink'] || null })
   }
 
   if (action === 'thread_id') {
@@ -316,6 +348,27 @@ ${bodyLines}
     })
     if (r.ok) return NextResponse.json({ success: true })
     return NextResponse.json({ success: false })
+  }
+
+  if (action === 'list_next') {
+    const { token } = await getTokenObj()
+    if (!token) return NextResponse.json({ emails: [] })
+    const nextLink = searchParams.get('nextLink') || ''
+    if (!nextLink) return NextResponse.json({ emails: [] })
+    const r = await fetch(nextLink, { headers: { Authorization: `Bearer ${token}` } })
+    const d = await r.json()
+    if (!d.value) return NextResponse.json({ emails: [] })
+    const emails = d.value.map((m: any) => ({
+      id: m.id, subject: m.subject || '(inget ämne)',
+      from: m.from?.emailAddress?.address || '',
+      fromName: m.from?.emailAddress?.name || '',
+      date: m.receivedDateTime, unread: !m.isRead,
+      preview: m.bodyPreview?.slice(0, 80) || '',
+      body: m.body?.content?.replace(/<style[^>]*>[\s\S]*?<\/style>/gi,'')?.replace(/<[^>]+>/g,'')?.replace(/&nbsp;/g,' ')?.replace(/&amp;/g,'&').replace(/\s{3,}/g,'\n\n')?.trim() || '',
+      replyTo: m.replyTo?.[0]?.emailAddress?.address || m.from?.emailAddress?.address || '',
+      threadId: m.conversationId,
+    }))
+    return NextResponse.json({ emails, nextLink: d['@odata.nextLink'] || null })
   }
 
   if (action === 'thread_id') {
