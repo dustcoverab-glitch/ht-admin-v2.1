@@ -56,13 +56,14 @@ Besöksadress: Storgatan 58, Linköping"
 SVARA BARA med mailtexten — ingen förklaring, inga kommentarer.
 `
 
-type Folder = 'inbox' | 'sent' | 'drafts' | 'compose'
+type Folder = 'inbox' | 'sent' | 'drafts' | 'archive' | 'compose'
 
 const FOLDERS: { id: Folder; label: string; icon: string }[] = [
-  { id: 'inbox',   label: 'Inkorg',   icon: 'fas fa-inbox' },
-  { id: 'sent',    label: 'Skickat',  icon: 'fas fa-paper-plane' },
-  { id: 'drafts',  label: 'Utkast',   icon: 'fas fa-file-alt' },
-  { id: 'compose', label: 'Skriv ny', icon: 'fas fa-pen' },
+  { id: 'inbox',   label: 'Inkorg',    icon: 'fas fa-inbox' },
+  { id: 'sent',    label: 'Skickat',   icon: 'fas fa-paper-plane' },
+  { id: 'drafts',  label: 'Utkast',    icon: 'fas fa-file-alt' },
+  { id: 'archive', label: 'Arkiverat', icon: 'fas fa-archive' },
+  { id: 'compose', label: 'Skriv ny',  icon: 'fas fa-pen' },
 ]
 
 export default function MailPage({ customers, C, isMobile }: any) {
@@ -169,16 +170,30 @@ export default function MailPage({ customers, C, isMobile }: any) {
     setAttachments([])
     setSendStatus('')
     setAutoCreateStatus('')
+    setThreadEmails([])
     const match = customers.find((c: any) =>
       c.email && email.from && email.from.toLowerCase().includes(c.email.toLowerCase())
     )
     setLinkedCustomer(match || null)
     setCustomerSearch(match ? match.name : '')
-    async function archiveMail(emailId: string) {
+    const parsed = parseFormEmail(email.body)
+    setParsedForm(parsed)
+    if (email.threadId) {
+      try {
+        const r = await fetch(`/api/mail?action=thread_id&threadId=${encodeURIComponent(email.threadId)}`)
+        const d = await r.json()
+        const others = (d.emails || []).filter((m: any) => m.id !== email.id)
+        setThreadEmails(others)
+      } catch {}
+    }
+  }
+
+
+  async function archiveMail(emailId: string) {
     try {
       const r = await fetch('/api/mail', {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'archive', emailId })
       })
       const d = await r.json()
@@ -189,41 +204,6 @@ export default function MailPage({ customers, C, isMobile }: any) {
         setTimeout(() => setArchiveStatus(''), 2000)
       }
     } catch {}
-  }
-
-  async function aiCreateCustomer() {
-    if (!selected) return
-    setAiCreateLoading(true)
-    setAutoCreateStatus('')
-    try {
-      const r = await fetch('/api/ai', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          message: `Extrahera kunduppgifter från detta mail. Avsändarens uppgifter är primär källa.\n\nAVSÄNDARE:\nNamn: ${selected.fromName || selected.from}\nE-post: ${selected.from}\n\nMAILINNEHÅLL:\nÄmne: ${selected.subject}\n${selected.body}\n\nReturnera ENBART JSON: {"name":"<avsändarens namn>","phone":"<telefon eller >","email":"<avsändarens mail>","address":"<adress eller >","note":"<vad kunden vill>"}`,
-          customers: []
-        })
-      })
-      const d = await r.json()
-      const text = d.reply || d.message || ''
-      const jsonMatch = text.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const data = JSON.parse(jsonMatch[0])
-        if (!data.email || data.email === '') data.email = selected.from
-          if (!data.name || data.name === '') data.name = selected.fromName || selected.from.split('@')[0]
-        await autoCreateCustomer(data)
-      } else {
-        setAutoCreateStatus('AI kunde inte extrahera uppgifter')
-      }
-    } catch (e: any) {
-      setAutoCreateStatus('Fel: ' + e.message)
-    }
-    setAiCreateLoading(false)
-  }
-
-  // Parse formulärmail
-    const parsed = parseFormEmail(email.body)
-    setParsedForm(parsed)
   }
 
   async function generateAiDraft() {
@@ -338,24 +318,8 @@ export default function MailPage({ customers, C, isMobile }: any) {
     return dt.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })
   }
 
-  // ── NOT CONNECTED ──
-  async function archiveMail(emailId: string) {
-    try {
-      const r = await fetch('/api/mail', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ action: 'archive', emailId })
-      })
-      const d = await r.json()
-      if (d.success) {
-        setArchiveStatus('✓ Arkiverat')
-        setSelected(null)
-        loadEmails(folder)
-        setTimeout(() => setArchiveStatus(''), 2000)
-      }
-    } catch {}
-  }
 
+  // Parse formulärmail (Nytt lead / kontaktformulär)
   async function aiCreateCustomer() {
     if (!selected) return
     setAiCreateLoading(true)
@@ -363,7 +327,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
     try {
       const r = await fetch('/api/ai', {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: `Extrahera kunduppgifter från detta mail. Avsändarens uppgifter är primär källa.\n\nAVSÄNDARE:\nNamn: ${selected.fromName || selected.from}\nE-post: ${selected.from}\n\nMAILINNEHÅLL:\nÄmne: ${selected.subject}\n${selected.body}\n\nReturnera ENBART JSON: {"name":"<avsändarens namn>","phone":"<telefon eller >","email":"<avsändarens mail>","address":"<adress eller >","note":"<vad kunden vill>"}`,
           customers: []
@@ -375,7 +339,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
       if (jsonMatch) {
         const data = JSON.parse(jsonMatch[0])
         if (!data.email || data.email === '') data.email = selected.from
-          if (!data.name || data.name === '') data.name = selected.fromName || selected.from.split('@')[0]
+        if (!data.name || data.name === '') data.name = selected.fromName || selected.from.split('@')[0]
         await autoCreateCustomer(data)
       } else {
         setAutoCreateStatus('AI kunde inte extrahera uppgifter')
@@ -386,7 +350,6 @@ export default function MailPage({ customers, C, isMobile }: any) {
     setAiCreateLoading(false)
   }
 
-  // Parse formulärmail (Nytt lead / kontaktformulär)
   function parseFormEmail(body: string): any {
     const lines = body.split('\n').map(l => l.trim()).filter(Boolean)
     const data: any = {}
