@@ -1028,11 +1028,11 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
 
   const weekDays=Array.from({length:7},(_,i)=>{
     const d=new Date(currentWeekStart)
-    d.setDate(d.getDate()+i)
+    d.setDate(d.getDate()+i);d.setHours(0,0,0,0)
     return d
   })
 
-  const todayStr=new Date().toISOString().split('T')[0]
+  const _tn=new Date();const todayStr=`${_tn.getFullYear()}-${String(_tn.getMonth()+1).padStart(2,"0")}-${String(_tn.getDate()).padStart(2,"0")}`
   const weekLabel=`${currentWeekStart.getDate()} ${MONTH_NAMES[currentWeekStart.getMonth()]} – ${weekDays[6].getDate()} ${MONTH_NAMES[weekDays[6].getMonth()]} ${weekDays[6].getFullYear()}`
 
   return(
@@ -1051,7 +1051,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
         <div style={{display:'grid',gridTemplateColumns:'36px repeat(7,1fr)',borderBottom:`1px solid ${C.border}`}}>
           <div style={{padding:'12px 4px',background:C.bg,borderRight:`1px solid ${C.border}`}}/>
           {weekDays.map((d,i)=>{
-            const dateStr=d.toISOString().split('T')[0]
+            const dateStr=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
             const isToday=dateStr===todayStr
             return(
               <div key={i} style={{padding:'8px 4px',textAlign:'center',background:isToday?`${C.primary}10`:C.bg,borderRight:i<6?`1px solid ${C.border}`:'none'}}>
@@ -1076,7 +1076,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                 ))}
               </div>
               {weekDays.map((d,i)=>{
-                const dateStr=d.toISOString().split('T')[0]
+                const dateStr=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
                 const rawJobs=customers.filter(c=>c.booked_date===dateStr&&!c.rejected)
                 const dayJobs=[...rawJobs].sort((a,b)=>(a.booked_time||'00:00').localeCompare(b.booked_time||'00:00'))
                 const isToday=dateStr===todayStr
