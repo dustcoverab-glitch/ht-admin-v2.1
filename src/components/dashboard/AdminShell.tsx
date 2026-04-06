@@ -242,6 +242,13 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [calAddService,setCalAddService]=useState('')
   const [calAddStep,setCalAddStep]=useState<number>(0)
   const [calAddSearch,setCalAddSearch]=useState('')
+  const [calInternalModal,setCalInternalModal]=useState(false)
+  const [calInternalDate,setCalInternalDate]=useState('')
+  const [calInternalTime,setCalInternalTime]=useState('08:00')
+  const [calInternalEndTime,setCalInternalEndTime]=useState('09:00')
+  const [calInternalTitle,setCalInternalTitle]=useState('')
+  const [calInternalNote,setCalInternalNote]=useState('')
+  const [internalEvents,setInternalEvents]=useState<any[]>([])
   /* Feature 2: Timer */
   const [timerSecs,setTimerSecs]=useState(0)
   const [timerRunning,setTimerRunning]=useState(false)
@@ -268,7 +275,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const inp:React.CSSProperties={background:C.input,border:`1px solid ${C.inputBorder}`,borderRadius:6,padding:'7px 11px',color:C.text,fontFamily:'inherit',fontSize:13,width:'100%',boxSizing:'border-box',outline:'none',transition:'border-color 0.15s'}
   const btn=(bg:string,color='white'):React.CSSProperties=>({display:'inline-flex',alignItems:'center',gap:6,padding:'6px 14px',background:bg,color,border:bg==='transparent'?'1px solid #333':'none',borderRadius:6,fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:'inherit',minHeight:34,transition:'opacity 0.15s',letterSpacing:'-0.1px'})
 
-  useEffect(()=>{loadCustomers();loadAllLogs();loadRecentActivity();loadContracts();loadJobs2025()},[])
+  useEffect(()=>{loadCustomers();loadAllLogs();loadRecentActivity();loadContracts();loadJobs2025();loadInternalEvents()},[])
   useEffect(()=>{
     const check=()=>{setIsMobile(window.innerWidth<768);if(window.innerWidth>=768)setSidebarOpen(false)}
     check();window.addEventListener('resize',check);return()=>window.removeEventListener('resize',check)
@@ -427,6 +434,20 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
     if(!confirm('Ta bort från kalendern?'))return
     await updateDoc(doc(db,'customers',customerId),{booked_date:'',booked_time:'',booked_end_time:''})
     await loadCustomers()
+  }
+  async function loadInternalEvents(){
+    try{const snap=await getDocs(query(collection(db,'calendar_events'),orderBy('date','asc')));setInternalEvents(snap.docs.map(d=>({id:d.id,...d.data()})))}catch(e){setInternalEvents([])}
+  }
+  async function saveInternalEvent(){
+    if(!calInternalTitle.trim()||!calInternalDate)return
+    await addDoc(collection(db,'calendar_events'),{title:calInternalTitle,note:calInternalNote,date:calInternalDate,time:calInternalTime,end_time:calInternalEndTime,type:'internal',created_at:new Date().toISOString()})
+    await loadInternalEvents()
+    setCalInternalModal(false);setCalInternalTitle('');setCalInternalNote('');setCalInternalTime('08:00');setCalInternalEndTime('09:00')
+  }
+  async function removeInternalEvent(id:string){
+    if(!confirm('Ta bort händelsen?'))return
+    await deleteDoc(doc(db,'calendar_events',id))
+    await loadInternalEvents()
   }
 
   /* ── Material items ── */
@@ -781,7 +802,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
       {isMobile&&sidebarOpen&&<div onClick={()=>setSidebarOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:999}}/>}
 
       {/* SIDEBAR */}
-      <aside style={{width:240,flexShrink:0,background:'#000',color:'#888',display:'flex',flexDirection:'column',height:'100vh',overflowY:'auto',borderRight:'1px solid #1a1a1a',...(isMobile?{position:'fixed' as const,top:0,left:0,zIndex:1000,transform:sidebarOpen?'translateX(0)':'translateX(-100%)',transition:'transform 0.25s ease'}:{})}}>
+      <aside style={{width:240,flexShrink:0,background:C.sidebar,color:C.sidebarText,display:'flex',flexDirection:'column',height:'100vh',overflowY:'auto',borderRight:`1px solid ${C.border}`,...(isMobile?{position:'fixed' as const,top:0,left:0,zIndex:1000,transform:sidebarOpen?'translateX(0)':'translateX(-100%)',transition:'transform 0.25s ease'}:{})}}>
         {/* Logo */}
         <div style={{padding:'20px 20px 16px',borderBottom:'1px solid #222'}}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -840,7 +861,10 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
             {({'dashboard':'Dashboard','customers':'Kunder','kalender':'Kalender','new-customer':'Ny kund','underhall':'Årligt underhåll','statistik':'Statistik','arbeten2025':'Arbeten 2025'} as any)[page]}
           </h1>
           {page==='kalender'
-            ?<button onClick={()=>{setCalAddDate(new Date().toISOString().split('T')[0]);setCalAddTime('08:00');setCalAddEndTime('10:00');setCalAddCustomerId('');setCalAddSearch('');setCalAddService('');setCalAddStep(0);setCalAddModal(true)}} style={btn(C.primary)}><i className="fas fa-calendar-plus"/>{!isMobile&&' Boka jobb'}</button>
+            ?<div style={{display:'flex',gap:8}}>
+                <button onClick={()=>{setCalAddDate(new Date().toISOString().split('T')[0]);setCalAddTime('08:00');setCalAddEndTime('10:00');setCalAddCustomerId('');setCalAddSearch('');setCalAddService('');setCalAddStep(0);setCalAddModal(true)}} style={btn(C.primary)}><i className="fas fa-calendar-plus"/>{!isMobile&&' Boka jobb'}</button>
+                <button onClick={()=>{setCalInternalDate(new Date().toISOString().split('T')[0]);setCalInternalTime('08:00');setCalInternalEndTime('09:00');setCalInternalTitle('');setCalInternalNote('');setCalInternalModal(true)}} style={btn('#8b5cf6')}><i className="fas fa-sticky-note"/>{!isMobile&&' Intern'}</button>
+              </div>
             :<button onClick={()=>setPage('new-customer')} style={btn(C.primary)}><i className="fas fa-plus"/>{!isMobile&&' Ny kund'}</button>
           }
         </div>
@@ -1086,17 +1110,36 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                             {heightPx>HOUR_H&&<div style={{fontSize:9,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</div>}
                             {heightPx>HOUR_H&&svcs.length>0&&<div style={{fontSize:8,color:color,fontWeight:600,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{svcs.map((sv:string)=>svcLabel(sv)).join(', ')}</div>}
                           </div>
-                          {/* Redigera-knapp */}
-                          <button onClick={e=>{e.stopPropagation();setCalAddDate(c.booked_date||dateStr);setCalAddTime(c.booked_time||'08:00');setCalAddEndTime(c.booked_end_time||'10:00');setCalAddCustomerId(c.id);setCalAddSearch(c.name);setCalAddService(getServices(c)[0]||'');setCalAddStep(0);setCalAddModal(true)}}
-                            title="Redigera bokning"
-                            style={{position:'absolute',bottom:2,right:18,width:14,height:14,background:`${color}25`,border:'none',borderRadius:3,color:color,cursor:'pointer',fontSize:8,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1,padding:0,zIndex:2}}>
-                            ✏
-                          </button>
-                          <button onClick={e=>{e.stopPropagation();removeFromCalendar(c.id)}}
-                            title="Ta bort från kalender"
-                            style={{position:'absolute',top:2,right:2,width:14,height:14,background:'rgba(239,68,68,0.15)',border:'none',borderRadius:3,color:'#ef4444',cursor:'pointer',fontSize:8,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1,padding:0,zIndex:2}}>
-                            ✕
-                          </button>
+                          {/* Redigera + ta bort knappar */}
+                          <div style={{position:'absolute',bottom:4,right:4,display:'flex',gap:3,zIndex:2}}>
+                            <button onClick={e=>{e.stopPropagation();setCalAddDate(c.booked_date||dateStr);setCalAddTime(c.booked_time||'08:00');setCalAddEndTime(c.booked_end_time||'10:00');setCalAddCustomerId(c.id);setCalAddSearch(c.name);setCalAddService(getServices(c)[0]||'');setCalAddStep(0);setCalAddModal(true)}}
+                              title="Redigera bokning"
+                              style={{width:20,height:20,background:`${color}30`,border:`1px solid ${color}50`,borderRadius:4,color:color,cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
+                              ✏
+                            </button>
+                            <button onClick={e=>{e.stopPropagation();removeFromCalendar(c.id)}}
+                              title="Ta bort från kalender"
+                              style={{width:20,height:20,background:'rgba(239,68,68,0.15)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,color:'#ef4444',cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {/* Interna händelser */}
+                    {internalEvents.filter(ev=>ev.date===dateStr).map(ev=>{
+                      let topPx=0,heightPx=HOUR_H
+                      if(ev.time){const [sh,sm]=(ev.time).split(':').map(Number);topPx=(sh-HOUR_START+sm/60)*HOUR_H}
+                      if(ev.time&&ev.end_time){const [sh,sm]=ev.time.split(':').map(Number);const [eh,em]=ev.end_time.split(':').map(Number);heightPx=Math.max(HOUR_H,(eh-sh+(em-sm)/60)*HOUR_H)}
+                      return(
+                        <div key={ev.id} style={{position:'absolute' as const,top:topPx,left:2,right:2,height:heightPx,background:'rgba(139,92,246,0.15)',border:'1px solid rgba(139,92,246,0.4)',borderLeft:'3px solid #8b5cf6',borderRadius:6,overflow:'hidden',zIndex:1}}>
+                          <div style={{padding:'3px 5px',height:'100%',overflow:'hidden'}}>
+                            {ev.time&&<div style={{fontSize:8,color:'#8b5cf6',fontWeight:700,lineHeight:1.2}}>{ev.time}{ev.end_time?`–${ev.end_time}`:''}</div>}
+                            <div style={{fontSize:isMobile?9:11,fontWeight:700,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.title}</div>
+                            {heightPx>HOUR_H&&ev.note&&<div style={{fontSize:9,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.note}</div>}
+                          </div>
+                          <button onClick={e=>{e.stopPropagation();removeInternalEvent(ev.id)}}
+                            style={{position:'absolute',top:2,right:2,width:16,height:16,background:'rgba(139,92,246,0.2)',border:'none',borderRadius:3,color:'#8b5cf6',cursor:'pointer',fontSize:9,display:'flex',alignItems:'center',justifyContent:'center',padding:0,zIndex:2}}>✕</button>
                         </div>
                       )
                     })}
@@ -1783,6 +1826,40 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
         </div>
       )}
 
+      {/* ── KALENDER: Intern händelse ── */}
+      {calInternalModal&&(
+        <div style={{...modalOverlay,zIndex:1003}} onClick={e=>{if(e.target===e.currentTarget)setCalInternalModal(false)}}>
+          <div style={modalBox(440)}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'20px 24px',borderBottom:`1px solid ${C.border}`,background:C.surface}}>
+              <h2 style={{fontSize:18,fontWeight:600,color:C.text,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-sticky-note" style={{color:'#8b5cf6'}}/> Intern händelse</h2>
+              <button onClick={()=>setCalInternalModal(false)} style={{width:32,height:32,background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,color:C.textSec,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+            </div>
+            <div style={{padding:24}}>
+              <div style={{marginBottom:14}}>
+                <label style={{display:'block',fontSize:13,fontWeight:600,marginBottom:6,color:C.text}}>Rubrik *</label>
+                <input value={calInternalTitle} onChange={e=>setCalInternalTitle(e.target.value)} placeholder="T.ex. Möte, Leverans, Inköp..." style={inp}/>
+              </div>
+              <div style={{marginBottom:14}}>
+                <label style={{display:'block',fontSize:13,fontWeight:600,marginBottom:8,color:C.text}}>Datum & tid</label>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+                  <div><div style={{fontSize:11,color:C.textSec,marginBottom:4}}>Datum</div><input type="date" value={calInternalDate} onChange={e=>setCalInternalDate(e.target.value)} style={{...inp,colorScheme:'dark'}}/></div>
+                  <div><div style={{fontSize:11,color:C.textSec,marginBottom:4}}>Start</div><input type="time" value={calInternalTime} onChange={e=>setCalInternalTime(e.target.value)} style={{...inp,colorScheme:'dark'}}/></div>
+                  <div><div style={{fontSize:11,color:C.textSec,marginBottom:4}}>Slut</div><input type="time" value={calInternalEndTime} onChange={e=>setCalInternalEndTime(e.target.value)} style={{...inp,colorScheme:'dark'}}/></div>
+                </div>
+              </div>
+              <div style={{marginBottom:20}}>
+                <label style={{display:'block',fontSize:13,fontWeight:600,marginBottom:6,color:C.text}}>Anteckning</label>
+                <textarea value={calInternalNote} onChange={e=>setCalInternalNote(e.target.value)} rows={3} placeholder="Valfri beskrivning..." style={{...inp,resize:'vertical' as const}}/>
+              </div>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',borderTop:`1px solid ${C.border}`,paddingTop:16}}>
+                <button onClick={()=>setCalInternalModal(false)} style={btn('#64748b')}>Avbryt</button>
+                <button onClick={saveInternalEvent} disabled={!calInternalTitle.trim()||!calInternalDate} style={{...btn((!calInternalTitle.trim()||!calInternalDate)?'#333':'#8b5cf6'),opacity:(!calInternalTitle.trim()||!calInternalDate)?0.5:1}}><i className="fas fa-sticky-note"/> Spara</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── KALENDER: Lägg till jobb ── */}
       {calAddModal&&(
         <div style={{...modalOverlay,zIndex:1003}} onClick={e=>{if(e.target===e.currentTarget)setCalAddModal(false)}}>
@@ -2172,7 +2249,6 @@ function StatPage({customers,allLogs,C,isMobile}:any){
   const totalRev=completedJobs.reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0)
   const avgRev=completedJobs.length?Math.round(totalRev/completedJobs.length):0
   const timeLogs=allLogs.filter((l:any)=>l.log_type==='time_log'&&l.time_spent)
-  const completedIds=new Set(completedJobs.map((c:any)=>c.id))
   // Tid ENBART för fakturerade jobb
   const completedTimeLogs=timeLogs.filter((l:any)=>timeJobIds.has(l.customer_id))
   const totalMins=completedTimeLogs.reduce((s:number,l:any)=>s+(l.time_spent||0),0)
