@@ -1138,7 +1138,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
 
         {/* ── NY KUND ── */}
         {page==='new-customer'&&<div style={{maxWidth:isMobile?'100%':600}}>
-          <div style={{background:C.surface,padding:isMobile?20:32,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
+          <div style={{background:'#0a0a0a',padding:isMobile?20:32,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',border:'1px solid #1a1a1a'}}>
             <h2 style={{fontSize:22,fontWeight:600,marginBottom:24,color:C.text}}>Skapa nytt ärende</h2>
             {([['Kundnamn *','name','text'],['Telefon *','phone','tel'],['E-post','email','email'],['Adress *','address','text']] as [string,string,string][]).map(([label,field,type])=>(
               <div key={field} style={{marginBottom:20}}>
