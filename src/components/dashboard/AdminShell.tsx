@@ -825,13 +825,13 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
         <nav style={{flex:1,padding:'8px 0'}}>
           {([
             ['dashboard',   BarChart2,    'Översikt'],
+            ['mail',        Bot,          'Mail'],
             ['customers',   Users,         'Kunder'],
             ['kalender',    CalendarDays,  'Kalender'],
             ['new-customer',Plus,          'Ny kund'],
             ['underhall',   RefreshCw,     'Underhåll'],
             ['statistik',   BarChart,      'Statistik'],
             ['arbeten2025', ClipboardList, 'Arbeten 2025'],
-            ['mail',        Bot,          'Mail'],
           ] as [string,any,string][]).map(([p,Icon,label])=>(
             <div key={p} onClick={()=>{setPage(p);if(isMobile)setSidebarOpen(false)}}
               style={{display:'flex',alignItems:'center',gap:10,padding:'8px 16px',cursor:'pointer',borderRadius:6,margin:'1px 8px',background:page===p?'rgba(59,130,246,0.12)':'transparent',color:page===p?'#ededed':'#888',transition:'all 0.15s',fontSize:13,borderLeft:page===p?'3px solid #3b82f6':'3px solid transparent'}}>
