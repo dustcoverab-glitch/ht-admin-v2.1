@@ -152,7 +152,7 @@ const DARK={bg:'#000000',surface:'#111111',border:'#333333',text:'#ededed',textS
 /* ─── STATUS BADGE ───────────────────────────────────────────── */
 function StatusBadge({status}:{status:string}){
   const colors:Record<string,{bg:string,text:string}>={
-    new:      {bg:'rgba(239,68,68,0.15)',   text:'#ef4444'},
+    new:      {bg:'rgba(34,197,94,0.15)',   text:'#22c55e'},
     in_progress:{bg:'rgba(59,130,246,0.15)',text:'#3b82f6'},
     completed:{bg:'rgba(16,185,129,0.15)', text:'#10b981'},
     rejected: {bg:'rgba(239,68,68,0.15)',  text:'#ef4444'},
@@ -838,7 +838,10 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
           <h1 style={{fontSize:isMobile?18:22,fontWeight:600,color:C.text,margin:0}}>
             {({'dashboard':'Dashboard','customers':'Kunder','kalender':'Kalender','new-customer':'Ny kund','underhall':'Årligt underhåll','statistik':'Statistik','arbeten2025':'Arbeten 2025'} as any)[page]}
           </h1>
-          <button onClick={()=>setPage('new-customer')} style={btn(C.primary)}><i className="fas fa-plus"/>{!isMobile&&' Ny kund'}</button>
+          {page==='kalender'
+            ?<button onClick={()=>{setCalAddDate(new Date().toISOString().split('T')[0]);setCalAddTime('08:00');setCalAddEndTime('10:00');setCalAddCustomerId('');setCalAddSearch('');setCalAddService('');setCalAddStep(0);setCalAddModal(true)}} style={btn(C.primary)}><i className="fas fa-calendar-plus"/>{!isMobile&&' Boka jobb'}</button>
+            :<button onClick={()=>setPage('new-customer')} style={btn(C.primary)}><i className="fas fa-plus"/>{!isMobile&&' Ny kund'}</button>
+          }
         </div>
 
         {/* ── DASHBOARD ── */}
@@ -1059,15 +1062,15 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
 
         {/* Tidslinje 07–20 */}
         {(()=>{
-          const HOUR_START=7,HOUR_END=20,HOUR_COUNT=HOUR_END-HOUR_START,HOUR_H=40
+          const HOUR_START=7,HOUR_END=20,HOUR_COUNT=HOUR_END-HOUR_START,HOUR_H=44
           const TIMELINE_H=HOUR_COUNT*HOUR_H
           const hours=Array.from({length:HOUR_COUNT+1},(_,i)=>HOUR_START+i)
           return(
-            <div style={{display:'grid',gridTemplateColumns:isMobile?'36px repeat(7,1fr)':'36px repeat(7,1fr)'}}>
+            <div style={{display:'grid',gridTemplateColumns:'36px repeat(7,1fr)',overflow:'auto'}}>
               {/* Y-axel med timmar */}
-              <div style={{borderRight:`1px solid ${C.border}`,position:'relative' as const,height:TIMELINE_H+8}}>
+              <div style={{borderRight:`1px solid ${C.border}`,position:'relative' as const,height:TIMELINE_H,marginTop:0}}>
                 {hours.map(h=>(
-                  <div key={h} style={{position:'absolute' as const,top:(h-HOUR_START)*HOUR_H-8,right:4,fontSize:9,color:C.textSec,fontWeight:600,lineHeight:1}}>{String(h).padStart(2,'0')}</div>
+                  <div key={h} style={{position:'absolute' as const,top:(h-HOUR_START)*HOUR_H-7,right:4,fontSize:9,color:C.textSec,fontWeight:600,lineHeight:1}}>{String(h).padStart(2,'0')}</div>
                 ))}
               </div>
               {weekDays.map((d,i)=>{
@@ -1076,14 +1079,14 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                 const dayJobs=[...rawJobs].sort((a,b)=>(a.booked_time||'00:00').localeCompare(b.booked_time||'00:00'))
                 const isToday=dateStr===todayStr
                 return(
-                  <div key={i} style={{borderRight:i<6?`1px solid ${C.border}`:'none',position:'relative' as const,height:TIMELINE_H+8,background:isToday?`${C.primary}05`:'transparent'}}>
+                  <div key={i} style={{borderRight:i<6?`1px solid ${C.border}`:'none',position:'relative' as const,height:TIMELINE_H,background:isToday?`${C.primary}04`:'transparent'}}>
                     {/* Horisontella timlinjer */}
                     {hours.map(h=>(
                       <div key={h} style={{position:'absolute' as const,top:(h-HOUR_START)*HOUR_H,left:0,right:0,borderTop:`1px solid ${C.border}`,opacity:0.5}}/>
                     ))}
                     {/* Jobb-kort */}
                     {dayJobs.map(c=>{
-                      const statusColors:Record<string,string>={new:'#ef4444',in_progress:C.primary,completed:'#10b981',rejected:'#888888'}
+                      const statusColors:Record<string,string>={new:'#22c55e',in_progress:C.primary,completed:'#10b981',rejected:'#888888'}
                       const s=getStatus(c)
                       const color=statusColors[s]||'#888'
                       let topPx=0,heightPx=HOUR_H
@@ -1113,13 +1116,6 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                         </div>
                       )
                     })}
-                    {/* Lägg-till knapp längst ned */}
-                    <button onClick={e=>{e.stopPropagation();setCalAddDate(dateStr);setCalAddTime('08:00');setCalAddEndTime('10:00');setCalAddCustomerId('');setCalAddSearch('');setCalAddService('');setCalAddStep(0);setCalAddModal(true)}}
-                      style={{position:'absolute' as const,bottom:0,left:0,right:0,padding:'2px 0',background:'transparent',border:`1px dashed ${C.border}`,borderTop:'none',color:C.textSec,cursor:'pointer',fontSize:isMobile?9:10,fontFamily:'inherit',transition:'all 0.15s',zIndex:2}}
-                      onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.primary;(e.currentTarget as HTMLElement).style.color=C.primary}}
-                      onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.border;(e.currentTarget as HTMLElement).style.color=C.textSec}}>
-                      +
-                    </button>
                   </div>
                 )
               })}
@@ -1979,7 +1975,7 @@ function CustomerCard({c,C,onClick}:{c:any,C:any,onClick:()=>void}){
   const svcs=getServices(c),kvm=getKvm(c)
   const svcStr=svcs.map((s:string)=>`${svcLabel(s)} (${kvm[s]||0}kvm)`).join(', ')
   const price=parseFloat(c.price_excl_vat)||0
-  const statusColors:Record<string,string>={new:'#ef4444',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
+  const statusColors:Record<string,string>={new:'#22c55e',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
   const topColor=statusColors[status]||'#888'
   return(
     <div onClick={onClick} style={{background:C.surface,padding:18,borderRadius:12,border:`1px solid ${C.border}`,borderTop:`3px solid ${topColor}`,cursor:'pointer',transition:'border-color 0.15s,box-shadow 0.15s'}}
@@ -2119,7 +2115,8 @@ function DonutChart({data,C}:{data:{label:string,value:number,color:string}[],C:
 /* ─── STAT PAGE ──────────────────────────────────────────────── */
 function StatPage({customers,allLogs,C,isMobile}:any){
   const GOAL=2_500_000
-  const completedJobs=customers.filter((c:any)=>{
+  // Fakturerade = alla tjänster nått sista steget (Fakturerad)
+  const invoicedJobs=customers.filter((c:any)=>{
     if(c.rejected)return false
     if(!(parseFloat(c.price_excl_vat)||0))return false
     const p=getProgress(c),svcs=getServices(c)
@@ -2130,19 +2127,24 @@ function StatPage({customers,allLogs,C,isMobile}:any){
       return (p[s]||0)>=lastIdx
     })
   })
+  // completedJobs = aktiva + stängda (för omsättning, snitt etc — EXKL tid)
+  const completedJobs=customers.filter((c:any)=>!c.rejected&&(parseFloat(c.price_excl_vat)||0)>0&&(getStatus(c)==='completed'||getStatus(c)==='in_progress'))
+  // Tid räknas ENBART på fakturerade
+  const timeJobIds=new Set(invoicedJobs.map((c:any)=>c.id))
   const totalRev=completedJobs.reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0)
   const avgRev=completedJobs.length?Math.round(totalRev/completedJobs.length):0
   const timeLogs=allLogs.filter((l:any)=>l.log_type==='time_log'&&l.time_spent)
   const completedIds=new Set(completedJobs.map((c:any)=>c.id))
-  const completedTimeLogs=timeLogs.filter((l:any)=>completedIds.has(l.customer_id))
+  // Tid ENBART för fakturerade jobb
+  const completedTimeLogs=timeLogs.filter((l:any)=>timeJobIds.has(l.customer_id))
   const totalMins=completedTimeLogs.reduce((s:number,l:any)=>s+(l.time_spent||0),0)
   const nonRejectedIds=new Set(customers.filter((c:any)=>!c.rejected).map((c:any)=>c.id))
   const allMins=timeLogs.filter((l:any)=>nonRejectedIds.has(l.customer_id)).reduce((s:number,l:any)=>s+(l.time_spent||0),0)
   const revPerHour=totalMins>0&&totalRev>0?Math.round(totalRev/(totalMins/60)):0
   const custMinsCompleted:Record<string,number>={}
   completedTimeLogs.forEach((l:any)=>{if(l.customer_id)custMinsCompleted[l.customer_id]=(custMinsCompleted[l.customer_id]||0)+(l.time_spent||0)})
-  const avgHourlyPerJob=completedJobs.length>0?(()=>{
-    const rates=completedJobs.map((c:any)=>{const m=custMinsCompleted[c.id]||0;const r=parseFloat(c.price_excl_vat)||0;return m>0?r/(m/60):0}).filter((x:number)=>x>0)
+  const avgHourlyPerJob=invoicedJobs.length>0?(()=>{
+    const rates=invoicedJobs.map((c:any)=>{const m=custMinsCompleted[c.id]||0;const r=parseFloat(c.price_excl_vat)||0;return m>0?r/(m/60):0}).filter((x:number)=>x>0)
     return rates.length?Math.round(rates.reduce((a:number,b:number)=>a+b,0)/rates.length):0
   })():0
   const reachedOff=customers.filter((c:any)=>{
