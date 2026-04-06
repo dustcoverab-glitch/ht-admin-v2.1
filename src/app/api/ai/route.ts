@@ -369,7 +369,7 @@ export async function POST(req: NextRequest) {
       const customerId = String(body.customerId ?? '')
       if (!pdfBase64) return NextResponse.json({ error: 'pdfBase64 saknas' }, { status: 400 })
       const response = await anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-opus-4-5-20251101',
         max_tokens: 1024,
         messages: [{
           role: 'user',
