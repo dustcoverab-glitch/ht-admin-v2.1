@@ -1601,12 +1601,22 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                               const data=await res.json()
                               if(data.error){
                                 setMaterialMsg(`❌ ${data.error}`)
-                              } else if(data.material_items?.length>0){
-                                setMaterialItems(data.material_items.map((i:any)=>({name:String(i.name||''),qty:String(i.qty||1),unit_price:String(i.unit_price||0)})))
-                                setMaterialMsg(`✓ Hittade ${data.material_items.length} poster`)
-                                setTimeout(()=>setMaterialMsg(''),4000)
                               } else {
-                                setMaterialMsg('⚠️ Inga materialposter hittades i PDF:en')
+                                // Sätt material-poster
+                                if(data.material_items?.length>0){
+                                  setMaterialItems(data.material_items.map((i:any)=>({name:String(i.name||''),qty:String(i.qty||1),unit_price:String(i.unit_price||0)})))
+                                }
+                                // Sätt pris exkl moms automatiskt om det hittades
+                                if(data.total_price_excl_vat&&data.total_price_excl_vat>0&&current?.id){
+                                  const {updateDoc,doc:fsDoc}=await import('firebase/firestore')
+                                  const {db:fsDb}=await import('@/lib/firebase')
+                                  await updateDoc(fsDoc(fsDb,'customers',current.id),{price_excl_vat:String(data.total_price_excl_vat)})
+                                  setCurrent((p:any)=>({...p,price_excl_vat:String(data.total_price_excl_vat)}))
+                                  setMaterialMsg(`✓ ${data.material_items?.length||0} material + pris ${data.total_price_excl_vat.toLocaleString('sv')} kr sparat`)
+                                } else {
+                                  setMaterialMsg(data.material_items?.length>0?`✓ Hittade ${data.material_items.length} materialposter`:'⚠️ Inga poster hittades')
+                                }
+                                setTimeout(()=>setMaterialMsg(''),6000)
                               }
                             }catch(err:any){
                               setMaterialMsg(`❌ Fel: ${err.message}`)
@@ -1616,7 +1626,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                           e.target.value=''
                         }}/>
                       </label>
-                      <span style={{fontSize:11,color:C.textSec}}>PDF läses av med AI och fyller i listan nedan</span>
+                      <span style={{fontSize:11,color:C.textSec}}>PDF läses av — fyller in material och sätter pris automatiskt</span>
                     </div>
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:12,marginBottom:20}}>

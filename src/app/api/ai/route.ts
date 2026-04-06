@@ -375,7 +375,7 @@ export async function POST(req: NextRequest) {
           role: 'user',
           content: [
             { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } } as any,
-            { type: 'text', text: 'Analysera denna offert-PDF. Extrahera ALLA materialposter med namn, antal och styckpris (exkl. moms). Returnera ENBART giltig JSON: {"material_items":[{"name":"Materialnamn","qty":1,"unit_price":100}]}. Inkludera ENBART material/produkter, INTE arbete eller tjänster. Om inga hittas, returnera {"material_items":[]}.' }
+            { type: 'text', text: 'Analysera denna offert-PDF för ett ytrengöringsföretag. Extrahera: 1) ALLA materialposter, 2) Totalpris exkl moms. Returnera ENBART giltig JSON: {"material_items":[{"name":"Materialnamn","qty":1,"unit_price":100}],"total_price_excl_vat":12500}. För material: inkludera ENBART produkter/material, INTE arbete/tjänster. För priset: leta efter "totalt exkl moms", "nettopris", "pris exkl moms" eller liknande. Om inget pris hittas sätt total_price_excl_vat till 0.' }
           ]
         }],
       })
@@ -387,7 +387,8 @@ export async function POST(req: NextRequest) {
       const material_items = (parsed.material_items ?? []).map((i: any) => ({
         name: String(i.name ?? ''), qty: Number(i.qty ?? 1), unit_price: Number(i.unit_price ?? 0)
       }))
-      return NextResponse.json({ material_items, customer_id: customerId })
+      const total_price_excl_vat = Number(parsed.total_price_excl_vat ?? 0)
+      return NextResponse.json({ material_items, total_price_excl_vat, customer_id: customerId })
     }
 
     const userMessage = String(body.message ?? body.messages?.[body.messages?.length - 1]?.content ?? '')
