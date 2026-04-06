@@ -69,6 +69,7 @@ function getKvm(c:any):Record<string,string>{try{return typeof c.service_kvm==='
 function svcLabel(s:string){return({stentvatt:'Stentvätt',stentvatt_no_fogsand:'Stentvätt (utan fogsand)',betongtvatt:'Betongtvätt',altantvatt:'Altantvätt',asfaltstvatt:'Asfaltstvätt'} as any)[s]||s}
 function statusLabel(s:string){return({new:'Ny',in_progress:'Pågående',completed:'Slutförd',rejected:'Ej Accepterad'} as any)[s]||s}
 function fmtDate(d:string){if(!d)return '';return new Date(d).toLocaleDateString('sv-SE',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
+function normalizeBookedDate(d:string){if(!d)return '';if(!d.includes('T'))return d;const dt=new Date(d);return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`}
 function fmtCur(n:number){return Math.round(n).toLocaleString('sv-SE')+' kr'}
 function fmtMins(m:number){const h=Math.floor(m/60),min=m%60;return `${h}h ${min}m`}
 function fmtTimer(secs:number){const h=Math.floor(secs/3600),m=Math.floor((secs%3600)/60),s=secs%60;return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
@@ -1081,7 +1082,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               </div>
               {weekDays.map((d,i)=>{
                 const dateStr=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
-                const rawJobs=customers.filter(c=>c.booked_date===dateStr&&!c.rejected)
+                const rawJobs=customers.filter(c=>normalizeBookedDate(c.booked_date)===dateStr&&!c.rejected)
                 const dayJobs=[...rawJobs].sort((a,b)=>(a.booked_time||'00:00').localeCompare(b.booked_time||'00:00'))
                 const isToday=dateStr===todayStr
                 return(
