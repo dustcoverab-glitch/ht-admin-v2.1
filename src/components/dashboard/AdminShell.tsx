@@ -165,7 +165,7 @@ function StatusBadge({status}:{status:string}){
   )
 }
 const EMPTY_UH={name:'',phone:'',email:'',address:'',amount:'',note:''}
-const TODAY=new Date().toISOString().split('T')[0]
+const TODAY=((d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)()
 
 /* ─── ARBETEN 2025 ───────────────────────────────────────────── */
 const SERVICES_2025=[
@@ -385,7 +385,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
       log_type:'time_log',
       moment:momentToLog,
       time_spent:totalMins,
-      date:new Date().toISOString().split('T')[0],
+      date:((d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)(),
       content:`${momentToLog}: ${fmtMins(totalMins)} (timer)`,
       timestamp:new Date().toISOString()
     })
@@ -767,7 +767,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const calDays=getCalDays(calYear,calMonth)
   const MONTH_NAMES=['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December']
   const DAY_NAMES=['Mån','Tis','Ons','Tor','Fre','Lör','Sön']
-  const todayStr=new Date().toISOString().split('T')[0]
+  const todayStr=((d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)()
 
   /* Calendar customers: have booked_date and are NOT "Fakturerad" */
   const calCustomers=customers.filter(c=>{
@@ -866,8 +866,8 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
           </h1>
           {page==='kalender'
             ?<div style={{display:'flex',gap:8}}>
-                <button onClick={()=>{setCalAddDate(new Date().toISOString().split('T')[0]);setCalAddTime('08:00');setCalAddEndTime('10:00');setCalAddCustomerId('');setCalAddSearch('');setCalAddService('');setCalAddStep(0);setCalAddOperator(['Herman']);setCalAddModal(true)}} style={btn(C.primary)}><i className="fas fa-calendar-plus"/>{!isMobile&&' Boka jobb'}</button>
-                <button onClick={()=>{setCalInternalDate(new Date().toISOString().split('T')[0]);setCalInternalTime('08:00');setCalInternalEndTime('09:00');setCalInternalTitle('');setCalInternalNote('');setCalInternalModal(true)}} style={btn('#8b5cf6')}><i className="fas fa-sticky-note"/>{!isMobile&&' Intern'}</button>
+                <button onClick={()=>{setCalAddDate(((d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)());setCalAddTime('08:00');setCalAddEndTime('10:00');setCalAddCustomerId('');setCalAddSearch('');setCalAddService('');setCalAddStep(0);setCalAddOperator(['Herman']);setCalAddModal(true)}} style={btn(C.primary)}><i className="fas fa-calendar-plus"/>{!isMobile&&' Boka jobb'}</button>
+                <button onClick={()=>{setCalInternalDate(((d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)());setCalInternalTime('08:00');setCalInternalEndTime('09:00');setCalInternalTitle('');setCalInternalNote('');setCalInternalModal(true)}} style={btn('#8b5cf6')}><i className="fas fa-sticky-note"/>{!isMobile&&' Intern'}</button>
               </div>
             :<button onClick={()=>setPage('new-customer')} style={btn(C.primary)}><i className="fas fa-plus"/>{!isMobile&&' Ny kund'}</button>
           }
