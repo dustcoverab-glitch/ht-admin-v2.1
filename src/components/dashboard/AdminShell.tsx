@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, orderBy, query, where } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import AIPanel from '@/components/ai/AIPanel'
+import MailPage from '@/components/mail/MailPage'
 import { BarChart2, Users, CalendarDays, Plus, RefreshCw, BarChart, ClipboardList, Bot, Sun, Moon, LogOut, Phone as PhoneIcon, MapPin as MapPinIcon } from 'lucide-react'
 
 /* ─── SERVICE STEPS ─────────────────────────────────────────── */
@@ -830,6 +831,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
             ['underhall',   RefreshCw,     'Underhåll'],
             ['statistik',   BarChart,      'Statistik'],
             ['arbeten2025', ClipboardList, 'Arbeten 2025'],
+            ['mail',        Bot,          'Mail'],
           ] as [string,any,string][]).map(([p,Icon,label])=>(
             <div key={p} onClick={()=>{setPage(p);if(isMobile)setSidebarOpen(false)}}
               style={{display:'flex',alignItems:'center',gap:10,padding:'8px 16px',cursor:'pointer',borderRadius:6,margin:'1px 8px',background:page===p?'rgba(59,130,246,0.12)':'transparent',color:page===p?'#ededed':'#888',transition:'all 0.15s',fontSize:13,borderLeft:page===p?'3px solid #3b82f6':'3px solid transparent'}}>
@@ -862,7 +864,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
       <main style={{flex:1,padding:isMobile?'16px':'28px 32px',paddingTop:isMobile?'66px':'28px',height:'100vh',overflowY:'auto',minWidth:0,background:C.bg}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isMobile?16:28,gap:8,flexWrap:'wrap' as const}}>
           <h1 style={{fontSize:isMobile?18:22,fontWeight:600,color:C.text,margin:0}}>
-            {({'dashboard':'Dashboard','customers':'Kunder','kalender':'Kalender','new-customer':'Ny kund','underhall':'Årligt underhåll','statistik':'Statistik','arbeten2025':'Arbeten 2025'} as any)[page]}
+            {({'dashboard':'Dashboard','customers':'Kunder','kalender':'Kalender','new-customer':'Ny kund','underhall':'Årligt underhåll','statistik':'Statistik','arbeten2025':'Arbeten 2025','mail':'Mail'} as any)[page]}
           </h1>
           {page==='kalender'
             ?<div style={{display:'flex',gap:8}}>
@@ -1318,6 +1320,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
 
         {/* ── STATISTIK ── */}
         {page==='statistik'&&<StatPage customers={customers} allLogs={allLogs} C={C} isMobile={isMobile}/>}
+        {page==='mail'&&<MailPage customers={customers} C={C} isMobile={isMobile}/>}
 
         {/* ── ARBETEN 2025 ── */}
         {page==='arbeten2025'&&<>
