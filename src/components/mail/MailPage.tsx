@@ -86,6 +86,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
   const [parsedForm, setParsedForm] = useState<any>(null)
   const [archiveStatus, setArchiveStatus] = useState('')
   const [aiCreateLoading, setAiCreateLoading] = useState(false)
+  const [threadEmails, setThreadEmails] = useState<any[]>([])
   // Compose / ny mail
   const [composeTo, setComposeTo] = useState('')
   const [composeSubject, setComposeSubject] = useState('')
@@ -477,9 +478,10 @@ export default function MailPage({ customers, C, isMobile }: any) {
       {/* ── MAIL-LISTA ── */}
       {folder !== 'compose' && (
         <div style={{ width: isMobile ? 'calc(100% - 52px)' : 280, flexShrink: 0, borderRight: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', ...(isMobile && selected ? { display: 'none' } : {}) }}>
-          <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 13, fontWeight: 600, color: C.text }}>
-            {FOLDERS.find(f => f.id === folder)?.label}
-            {folder === 'inbox' && unreadCount > 0 && <span style={{ marginLeft: 6, fontSize: 11, color: C.textSec, fontWeight: 400 }}>{unreadCount} olästa</span>}
+          <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 13, fontWeight: 600, color: C.text, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>{FOLDERS.find(f => f.id === folder)?.label}
+            {folder === 'inbox' && unreadCount > 0 && <span style={{ marginLeft: 6, fontSize: 11, color: C.textSec, fontWeight: 400 }}>{unreadCount} olästa</span>}</span>
+            {archiveStatus && <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600 }}>{archiveStatus}</span>}
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
@@ -503,7 +505,12 @@ export default function MailPage({ customers, C, isMobile }: any) {
                   </div>
                   <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                     {cust && <span style={{ fontSize: 10, padding: '1px 6px', background: `${C.primary}15`, color: C.primary, borderRadius: 9999, fontWeight: 600, flexShrink: 0 }}>{cust.name}</span>}
-                    <span style={{ fontSize: 11, color: C.textSec, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.preview}</span>
+                    <span style={{ fontSize: 11, color: C.textSec, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{email.preview}</span>
+                    <button onClick={e=>{e.stopPropagation();archiveMail(email.id)}} title="Arkivera"
+                      style={{ flexShrink: 0, width: 20, height: 20, background: 'transparent', border: 'none', color: C.textSec, cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 4, opacity: 0.6 }}
+                      onMouseEnter={e=>(e.currentTarget.style.opacity='1')} onMouseLeave={e=>(e.currentTarget.style.opacity='0.6')}>
+                      <i className="fas fa-archive"/>
+                    </button>
                   </div>
                 </div>
               )
@@ -618,7 +625,25 @@ export default function MailPage({ customers, C, isMobile }: any) {
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '0 0 40px' }}>
-              {/* Mailinnehåll */}
+              {/* Tråd — tidigare mail */}
+              {threadEmails.length > 0 && (
+                <div style={{ padding: '12px 22px', borderBottom: `1px solid ${C.border}`, background: `${C.bg}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.textSec, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i className="fas fa-comments"/> TRÅD — {threadEmails.length} tidigare {threadEmails.length === 1 ? 'mail' : 'mail'}
+                  </div>
+                  {threadEmails.map(m => (
+                    <div key={m.id} style={{ marginBottom: 8, padding: '8px 12px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, borderLeft: `3px solid ${C.primary}40` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec }}>{m.fromName || m.from}</span>
+                        <span style={{ fontSize: 10, color: C.textSec }}>{new Date(m.date).toLocaleString('sv-SE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
+                      </div>
+                      <pre style={{ fontSize: 12, color: C.textSec, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0, maxHeight: 80, overflow: 'hidden', lineHeight: 1.5 }}>{m.body}</pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+            {/* Mailinnehåll */}
               <div style={{ padding: '18px 22px', borderBottom: `1px solid ${C.border}` }}>
                 {parsedForm ? (
                   <div>

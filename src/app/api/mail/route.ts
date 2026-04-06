@@ -103,14 +103,14 @@ export async function GET(req: NextRequest) {
     let folderId: string | null = null
     const foldersR = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders?$top=50', { headers: { Authorization: `Bearer ${token}` } })
     const foldersD = await foldersR.json()
-    const existing = (foldersD.value || []).find((f: any) => f.displayName === 'Oviktigt')
+    const existing = (foldersD.value || []).find((f: any) => f.displayName === 'Arkiverat')
     if (existing) {
       folderId = existing.id
     } else {
       const createR = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: 'Oviktigt' })
+        body: JSON.stringify({ displayName: 'Arkiverat' })
       })
       const createD = await createR.json()
       folderId = createD.id
@@ -146,6 +146,28 @@ export async function GET(req: NextRequest) {
     })
     if (r.ok) return NextResponse.json({ success: true })
     return NextResponse.json({ success: false })
+  }
+
+  if (action === 'thread_id') {
+    const { token } = await getTokenObj()
+    if (!token) return NextResponse.json({ emails: [] })
+    const threadId = searchParams.get('threadId') || ''
+    const filter = encodeURIComponent(`conversationId eq '${threadId}'`)
+    const r = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages?$top=20&$orderby=receivedDateTime asc&$filter=${filter}&$select=id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    const d = await r.json()
+    if (!d.value) return NextResponse.json({ emails: [] })
+    const emails = d.value.map((m: any) => ({
+      id: m.id,
+      subject: m.subject || '',
+      from: m.from?.emailAddress?.address || '',
+      fromName: m.from?.emailAddress?.name || '',
+      date: m.receivedDateTime,
+      body: m.body?.content?.replace(/<style[^>]*>[\s\S]*?<\/style>/gi,'')?.replace(/<[^>]+>/g,'')?.replace(/&nbsp;/g,' ')?.replace(/&amp;/g,'&').replace(/\s{3,}/g,'\n\n')?.trim() || '',
+    }))
+    return NextResponse.json({ emails })
   }
 
   if (action === 'thread') {
@@ -251,14 +273,14 @@ ${bodyLines}
     let folderId: string | null = null
     const foldersR = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders?$top=50', { headers: { Authorization: `Bearer ${token}` } })
     const foldersD = await foldersR.json()
-    const existing = (foldersD.value || []).find((f: any) => f.displayName === 'Oviktigt')
+    const existing = (foldersD.value || []).find((f: any) => f.displayName === 'Arkiverat')
     if (existing) {
       folderId = existing.id
     } else {
       const createR = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: 'Oviktigt' })
+        body: JSON.stringify({ displayName: 'Arkiverat' })
       })
       const createD = await createR.json()
       folderId = createD.id
@@ -294,6 +316,28 @@ ${bodyLines}
     })
     if (r.ok) return NextResponse.json({ success: true })
     return NextResponse.json({ success: false })
+  }
+
+  if (action === 'thread_id') {
+    const { token } = await getTokenObj()
+    if (!token) return NextResponse.json({ emails: [] })
+    const threadId = searchParams.get('threadId') || ''
+    const filter = encodeURIComponent(`conversationId eq '${threadId}'`)
+    const r = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages?$top=20&$orderby=receivedDateTime asc&$filter=${filter}&$select=id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    const d = await r.json()
+    if (!d.value) return NextResponse.json({ emails: [] })
+    const emails = d.value.map((m: any) => ({
+      id: m.id,
+      subject: m.subject || '',
+      from: m.from?.emailAddress?.address || '',
+      fromName: m.from?.emailAddress?.name || '',
+      date: m.receivedDateTime,
+      body: m.body?.content?.replace(/<style[^>]*>[\s\S]*?<\/style>/gi,'')?.replace(/<[^>]+>/g,'')?.replace(/&nbsp;/g,' ')?.replace(/&amp;/g,'&').replace(/\s{3,}/g,'\n\n')?.trim() || '',
+    }))
+    return NextResponse.json({ emails })
   }
 
   if (action === 'thread') {
