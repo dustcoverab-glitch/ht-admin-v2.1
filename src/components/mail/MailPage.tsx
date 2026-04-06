@@ -82,6 +82,8 @@ export default function MailPage({ customers, C, isMobile }: any) {
   const [authUrl, setAuthUrl] = useState('')
   const [folder, setFolder] = useState<Folder>('inbox')
   const [userNote, setUserNote] = useState('')
+  const [autoCreateStatus, setAutoCreateStatus] = useState('')
+  const [parsedForm, setParsedForm] = useState<any>(null)
   // Compose / ny mail
   const [composeTo, setComposeTo] = useState('')
   const [composeSubject, setComposeSubject] = useState('')
@@ -145,11 +147,15 @@ export default function MailPage({ customers, C, isMobile }: any) {
     setUserNote('')
     setAttachments([])
     setSendStatus('')
+    setAutoCreateStatus('')
     const match = customers.find((c: any) =>
       c.email && email.from && email.from.toLowerCase().includes(c.email.toLowerCase())
     )
     setLinkedCustomer(match || null)
     setCustomerSearch(match ? match.name : '')
+    // Parse formulärmail
+    const parsed = parseFormEmail(email.body)
+    setParsedForm(parsed)
   }
 
   async function generateAiDraft() {
@@ -265,6 +271,60 @@ export default function MailPage({ customers, C, isMobile }: any) {
   }
 
   // ── NOT CONNECTED ──
+  // Parse formulärmail (Nytt lead / kontaktformulär)
+  function parseFormEmail(body: string): any {
+    const lines = body.split('\n').map(l => l.trim()).filter(Boolean)
+    const data: any = {}
+    const fieldMap: Record<string,string> = {
+      'namn': 'name', 'name': 'name',
+      'e-post': 'email', 'email': 'email', 'e-postadress': 'email',
+      'telefon': 'phone', 'phone': 'phone', 'tel': 'phone',
+      'adress': 'address', 'address': 'address', 'gatuadress': 'address',
+      'meddelande': 'message', 'message': 'message', 'kommentar': 'message',
+      'postnummer': 'zip', 'ort': 'city', 'stad': 'city',
+    }
+    for (const line of lines) {
+      const colonIdx = line.indexOf(':')
+      if (colonIdx > 0) {
+        const key = line.slice(0, colonIdx).trim().toLowerCase()
+        const val = line.slice(colonIdx + 1).trim()
+        if (val && fieldMap[key]) data[fieldMap[key]] = val
+      }
+    }
+    return Object.keys(data).length >= 2 ? data : null
+  }
+
+  async function autoCreateCustomer(formData: any) {
+    if (!formData?.name) return
+    setAutoCreateStatus('Skapar kund...')
+    try {
+      const { db: fsDb } = await import('@/lib/firebase')
+      const { collection, addDoc } = await import('firebase/firestore')
+      const address = [formData.address, formData.zip, formData.city].filter(Boolean).join(', ')
+      await addDoc(collection(fsDb, 'customers'), {
+        name: formData.name,
+        phone: formData.phone || '',
+        email: formData.email || '',
+        address: address || '',
+        note: formData.message || '',
+        services: '[]',
+        service_kvm: '{}',
+        service_progress: '{}',
+        skipped_steps: '{}',
+        include_fogsand: false,
+        price_excl_vat: 0,
+        status: 'new',
+        rejected: false,
+        created_at: new Date().toISOString(),
+        source: 'mail',
+      })
+      setAutoCreateStatus('✓ Kund skapad!')
+      setTimeout(() => setAutoCreateStatus(''), 3000)
+    } catch (e: any) {
+      setAutoCreateStatus('Fel: ' + e.message)
+    }
+  }
+
   if (!connected) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 400, gap: 20, padding: 40 }}>
@@ -459,7 +519,30 @@ export default function MailPage({ customers, C, isMobile }: any) {
             <div style={{ flex: 1, overflowY: 'auto', padding: '0 0 40px' }}>
               {/* Mailinnehåll */}
               <div style={{ padding: '18px 22px', borderBottom: `1px solid ${C.border}` }}>
-                <pre style={{ fontSize: 13, color: C.text, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
+                {parsedForm ? (
+                  <div>
+                    <div style={{ marginBottom: 12, padding: '10px 14px', background: '#22c55e15', border: '1px solid #22c55e30', borderRadius: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#22c55e', marginBottom: 8 }}><i className="fas fa-wpforms" /> Formulärmail — kontaktuppgifter</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+                        {Object.entries(parsedForm).map(([k,v]:any) => (
+                          <div key={k} style={{ fontSize: 12, color: C.text }}><span style={{ color: C.textSec, fontWeight: 600 }}>{k === 'name' ? 'Namn' : k === 'email' ? 'E-post' : k === 'phone' ? 'Telefon' : k === 'address' ? 'Adress' : k === 'message' ? 'Meddelande' : k}:</span> {v}</div>
+                        ))}
+                      </div>
+                      {!linkedCustomer && (
+                        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <button onClick={() => autoCreateCustomer(parsedForm)}
+                            style={{ padding: '6px 14px', background: '#22c55e', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                            <i className="fas fa-user-plus" /> Skapa kund automatiskt
+                          </button>
+                          {autoCreateStatus && <span style={{ fontSize: 12, fontWeight: 600, color: autoCreateStatus.startsWith('✓') ? '#22c55e' : '#ef4444' }}>{autoCreateStatus}</span>}
+                        </div>
+                      )}
+                    </div>
+                    <pre style={{ fontSize: 13, color: C.textSec, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
+                  </div>
+                ) : (
+                  <pre style={{ fontSize: 13, color: C.text, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
+                )}
               </div>
 
               {/* Kundinfo */}

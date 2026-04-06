@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
     const folderParam = searchParams.get('folder')
     const folder = folderParam === 'sent' ? 'sentItems' : folderParam === 'drafts' ? 'drafts' : 'inbox'
     const r = await fetch(
-      `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages?$top=30&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
+      `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages?$top=100&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
       { headers: { Authorization: `Bearer ${token}` } }
     )
     const d = await r.json()
@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
     if (!token) return NextResponse.json({ success: false, error: 'Not authenticated' })
     const message = {
       subject: body.subject,
-      body: { contentType: 'HTML', content: body.body.replace(/\n/g,'<br>') },
+      body: { contentType: 'HTML', content: body.body.replace(/\\n/g,'<br>') },
       toRecipients: [{ emailAddress: { address: body.to } }],
     }
     const r = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
@@ -118,6 +118,34 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false })
   }
 
+  if (action === 'thread') {
+    const { token } = await getTokenObj()
+    if (!token) return NextResponse.json({ emails: [], error: 'Not authenticated' })
+    const email = searchParams.get('email') || ''
+    // Search for all messages from/to this email
+    const filter = encodeURIComponent(`from/emailAddress/address eq '${email}' or toRecipients/any(r:r/emailAddress/address eq '${email}')`)
+    const r = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages?$top=50&$orderby=receivedDateTime desc&$filter=${filter}&$select=id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    const d = await r.json()
+    if (!d.value) return NextResponse.json({ emails: [], error: d.error?.message })
+    const emails = d.value.map((m: any) => ({
+      id: m.id,
+      subject: m.subject || '(inget ämne)',
+      from: m.from?.emailAddress?.address || '',
+      fromName: m.from?.emailAddress?.name || '',
+      to: m.toRecipients?.[0]?.emailAddress?.address || '',
+      date: m.receivedDateTime,
+      unread: !m.isRead,
+      preview: m.bodyPreview?.slice(0, 80) || '',
+      body: m.body?.content?.replace(/<style[^>]*>[\s\S]*?<\/style>/gi,'')?.replace(/<[^>]+>/g,'')?.replace(/&nbsp;/g,' ')?.replace(/&amp;/g,'&')?.replace(/&lt;/g,'<')?.replace(/&gt;/g,'>')?.replace(/\s{3,}/g,'\n\n')?.trim() || '',
+      replyTo: m.replyTo?.[0]?.emailAddress?.address || m.from?.emailAddress?.address || '',
+      threadId: m.conversationId,
+    }))
+    return NextResponse.json({ emails })
+  }
+
   return NextResponse.json({ error: 'Unknown action' })
 }
 
@@ -127,6 +155,15 @@ export async function POST(req: NextRequest) {
 
   const accessToken = req.cookies.get('ms_access_token')?.value
   const storedRefresh = req.cookies.get('ms_refresh_token')?.value
+
+  async function getTokenObj(): Promise<{token:string|null,newAccess?:string,newRefresh?:string,newExpiry?:number}> {
+    if (accessToken) return { token: accessToken }
+    if (storedRefresh) {
+      const d = await refreshToken(storedRefresh)
+      if (d.access_token) return { token: d.access_token, newAccess: d.access_token, newRefresh: d.refresh_token, newExpiry: d.expires_in }
+    }
+    return { token: null }
+  }
 
   async function getToken(): Promise<string | null> {
     if (accessToken) return accessToken
@@ -143,7 +180,7 @@ export async function POST(req: NextRequest) {
 
     // Bygg HTML-mail med signatur och logga
     const logoUrl = 'https://ht-admin-v2-1.vercel.app/ht-logo.png'
-    const bodyLines = body.body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')
+    const bodyLines = body.body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\\n/g,'<br>')
     const htmlBody = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.6;max-width:600px">
 ${bodyLines}
 <br><br>
@@ -187,7 +224,7 @@ ${bodyLines}
     if (!token) return NextResponse.json({ success: false, error: 'Not authenticated' })
     const message = {
       subject: body.subject,
-      body: { contentType: 'HTML', content: body.body.replace(/\n/g,'<br>') },
+      body: { contentType: 'HTML', content: body.body.replace(/\\n/g,'<br>') },
       toRecipients: [{ emailAddress: { address: body.to } }],
     }
     const r = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
@@ -197,6 +234,34 @@ ${bodyLines}
     })
     if (r.ok) return NextResponse.json({ success: true })
     return NextResponse.json({ success: false })
+  }
+
+  if (action === 'thread') {
+    const { token } = await getTokenObj()
+    if (!token) return NextResponse.json({ emails: [], error: 'Not authenticated' })
+    const email = searchParams.get('email') || ''
+    // Search for all messages from/to this email
+    const filter = encodeURIComponent(`from/emailAddress/address eq '${email}' or toRecipients/any(r:r/emailAddress/address eq '${email}')`)
+    const r = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages?$top=50&$orderby=receivedDateTime desc&$filter=${filter}&$select=id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    const d = await r.json()
+    if (!d.value) return NextResponse.json({ emails: [], error: d.error?.message })
+    const emails = d.value.map((m: any) => ({
+      id: m.id,
+      subject: m.subject || '(inget ämne)',
+      from: m.from?.emailAddress?.address || '',
+      fromName: m.from?.emailAddress?.name || '',
+      to: m.toRecipients?.[0]?.emailAddress?.address || '',
+      date: m.receivedDateTime,
+      unread: !m.isRead,
+      preview: m.bodyPreview?.slice(0, 80) || '',
+      body: m.body?.content?.replace(/<style[^>]*>[\s\S]*?<\/style>/gi,'')?.replace(/<[^>]+>/g,'')?.replace(/&nbsp;/g,' ')?.replace(/&amp;/g,'&')?.replace(/&lt;/g,'<')?.replace(/&gt;/g,'>')?.replace(/\s{3,}/g,'\n\n')?.trim() || '',
+      replyTo: m.replyTo?.[0]?.emailAddress?.address || m.from?.emailAddress?.address || '',
+      threadId: m.conversationId,
+    }))
+    return NextResponse.json({ emails })
   }
 
   return NextResponse.json({ error: 'Unknown action' })

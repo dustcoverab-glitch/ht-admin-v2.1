@@ -205,6 +205,13 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [search,setSearch]=useState('')
   const [current,setCurrent]=useState<any>(null)
   const [showModal,setShowModal]=useState(false)
+  const [customerMailOpen,setCustomerMailOpen]=useState(false)
+  const [customerMailTarget,setCustomerMailTarget]=useState<any>(null)
+  const [customerMailThread,setCustomerMailThread]=useState<any[]>([])
+  const [customerMailLoading,setCustomerMailLoading]=useState(false)
+  const [customerMailCompose,setCustomerMailCompose]=useState('')
+  const [customerMailSending,setCustomerMailSending]=useState(false)
+  const [customerMailStatus,setCustomerMailStatus]=useState('')
   const [showAI,setShowAI]=useState(false)
   const [editMode,setEditMode]=useState(false)
   const [comment,setComment]=useState('')
@@ -556,6 +563,34 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   }
   async function toggleDone(id:string){const c=uhContracts.find(x=>x.id===id);if(!c)return;await updateDoc(doc(db,'maintenance_contracts',id),{done:!c.done});await loadContracts()}
   async function deleteContract(id:string){if(!confirm('Ta bort detta avtal?'))return;await deleteDoc(doc(db,'maintenance_contracts',id));await loadContracts();setUhDetailModal(false)}
+  async function openCustomerMail(c:any){
+    setCustomerMailTarget(c)
+    setCustomerMailOpen(true)
+    setCustomerMailThread([])
+    setCustomerMailCompose('')
+    setCustomerMailStatus('')
+    if(!c.email)return
+    setCustomerMailLoading(true)
+    try{
+      const r=await fetch(`/api/mail?action=thread&email=${encodeURIComponent(c.email)}`)
+      const d=await r.json()
+      setCustomerMailThread(d.emails||[])
+    }catch{}
+    setCustomerMailLoading(false)
+  }
+
+  async function sendCustomerMail(){
+    if(!customerMailTarget?.email||!customerMailCompose.trim())return
+    setCustomerMailSending(true)
+    try{
+      const r=await fetch('/api/mail',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'send',to:customerMailTarget.email,subject:`HT Ytrengöring — ${customerMailTarget.name}`,body:customerMailCompose})})
+      const d=await r.json()
+      if(d.success){setCustomerMailStatus('✓ Skickat!');setCustomerMailCompose('');openCustomerMail(customerMailTarget)}
+      else setCustomerMailStatus('Fel: '+(d.error||''))
+    }catch(e:any){setCustomerMailStatus('Fel: '+e.message)}
+    setCustomerMailSending(false)
+  }
+
   async function openCustomer(c:any){setCurrent(c);setShowModal(true);setEditMode(false);setEditLogId(null);setEditLogForm({});setTimeForm({moment:'',hours:'',mins:'',date:TODAY});await loadLogs(c.id)}
   async function addComment(){if(!current||!comment.trim())return;await addDoc(collection(db,'activity_logs'),{customer_id:current.id,log_type:'comment',content:comment,timestamp:new Date().toISOString()});setComment('');await loadLogs(current.id);await loadRecentActivity()}
   async function updateCust(id:string,data:any){await updateDoc(doc(db,'customers',id),data);await loadCustomers();setCurrent((prev:any)=>({...prev,...data}))}
@@ -929,7 +964,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
           <div style={{background:C.surface,padding:isMobile?16:24,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
             <h2 style={{fontSize:isMobile?15:18,fontWeight:600,marginBottom:16,color:C.text}}>Aktiva ärenden</h2>
             <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>
-              {customers.filter(c=>{const s=getStatus(c);return s==='new'||s==='in_progress'}).map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)}/>)}
+              {customers.filter(c=>{const s=getStatus(c);return s==='new'||s==='in_progress'}).map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)} onMail={openCustomerMail}/>)}
             </div>
           </div>
         </>}
@@ -967,7 +1002,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
           {filtered.length===0
             ?<div style={{textAlign:'center',padding:'60px',color:C.textSec}}>Inga ärenden att visa</div>
             :custView==='card'
-              ?<div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>{filtered.map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)}/>)}</div>
+              ?<div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>{filtered.map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)} onMail={openCustomerMail}/>)}</div>
               :<div style={{background:C.surface,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',overflow:'hidden'}}>
                 <div style={{overflowX:'auto'}}>
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
@@ -2132,7 +2167,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
 }
 
 /* ─── CUSTOMER CARD ──────────────────────────────────────────── */
-function CustomerCard({c,C,onClick}:{c:any,C:any,onClick:()=>void}){
+function CustomerCard({c,C,onClick,onMail}:{c:any,C:any,onClick:()=>void,onMail?:(c:any)=>void}){
   const status=getStatus(c),prog=Math.round(calcProgress(c))
   const svcs=getServices(c),kvm=getKvm(c)
   const svcStr=svcs.map((s:string)=>`${svcLabel(s)} (${kvm[s]||0}kvm)`).join(', ')
@@ -2160,7 +2195,12 @@ function CustomerCard({c,C,onClick}:{c:any,C:any,onClick:()=>void}){
       </div>
       {c.note&&<div style={{fontSize:12,color:C.text,background:'rgba(99,102,241,0.08)',border:'1px solid rgba(99,102,241,0.2)',padding:'6px 10px',borderRadius:6,marginBottom:12}}>📝 {c.note}</div>}
       <div style={{paddingTop:12,borderTop:`1px solid ${C.border}`}}>
-        <div style={{fontSize:12,color:C.textSec,marginBottom:6}}>Framsteg: {prog}%</div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+          <div style={{fontSize:12,color:C.textSec}}>Framsteg: {prog}%</div>
+          {onMail&&c.email&&<button onClick={e=>{e.stopPropagation();onMail(c)}} style={{padding:'3px 10px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,color:C.textSec,fontSize:11,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',gap:4}}>
+            <i className="fas fa-envelope" style={{color:C.primary}}/> Mail
+          </button>}
+        </div>
         <div style={{height:6,background:C.bg,borderRadius:9999,overflow:'hidden'}}>
           <div style={{height:'100%',width:`${prog}%`,background:C.primary,borderRadius:9999,transition:'width 0.3s'}}/>
         </div>
