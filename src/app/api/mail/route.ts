@@ -94,6 +94,36 @@ export async function GET(req: NextRequest) {
     return res
   }
 
+  if (action === 'archive') {
+    const token = await getToken()
+    if (!token) return NextResponse.json({ success: false })
+    const { emailId } = body
+    // Move to a folder called "Oviktigt" (create if needed)
+    // First find or create the folder
+    let folderId: string | null = null
+    const foldersR = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders?$top=50', { headers: { Authorization: `Bearer ${token}` } })
+    const foldersD = await foldersR.json()
+    const existing = (foldersD.value || []).find((f: any) => f.displayName === 'Oviktigt')
+    if (existing) {
+      folderId = existing.id
+    } else {
+      const createR = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: 'Oviktigt' })
+      })
+      const createD = await createR.json()
+      folderId = createD.id
+    }
+    if (!folderId) return NextResponse.json({ success: false, error: 'Could not get folder' })
+    const moveR = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${emailId}/move`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destinationId: folderId })
+    })
+    return NextResponse.json({ success: moveR.ok })
+  }
+
   if (action === 'disconnect') {
     const res = NextResponse.json({ success: true })
     res.cookies.delete('ms_access_token')
@@ -210,6 +240,36 @@ ${bodyLines}
     if (r.status === 202) return NextResponse.json({ success: true })
     const err = await r.json().catch(() => ({}))
     return NextResponse.json({ success: false, error: err.error?.message || r.statusText })
+  }
+
+  if (action === 'archive') {
+    const token = await getToken()
+    if (!token) return NextResponse.json({ success: false })
+    const { emailId } = body
+    // Move to a folder called "Oviktigt" (create if needed)
+    // First find or create the folder
+    let folderId: string | null = null
+    const foldersR = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders?$top=50', { headers: { Authorization: `Bearer ${token}` } })
+    const foldersD = await foldersR.json()
+    const existing = (foldersD.value || []).find((f: any) => f.displayName === 'Oviktigt')
+    if (existing) {
+      folderId = existing.id
+    } else {
+      const createR = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: 'Oviktigt' })
+      })
+      const createD = await createR.json()
+      folderId = createD.id
+    }
+    if (!folderId) return NextResponse.json({ success: false, error: 'Could not get folder' })
+    const moveR = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${emailId}/move`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destinationId: folderId })
+    })
+    return NextResponse.json({ success: moveR.ok })
   }
 
   if (action === 'disconnect') {

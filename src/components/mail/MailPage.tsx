@@ -84,6 +84,8 @@ export default function MailPage({ customers, C, isMobile }: any) {
   const [userNote, setUserNote] = useState('')
   const [autoCreateStatus, setAutoCreateStatus] = useState('')
   const [parsedForm, setParsedForm] = useState<any>(null)
+  const [archiveStatus, setArchiveStatus] = useState('')
+  const [aiCreateLoading, setAiCreateLoading] = useState(false)
   // Compose / ny mail
   const [composeTo, setComposeTo] = useState('')
   const [composeSubject, setComposeSubject] = useState('')
@@ -153,7 +155,58 @@ export default function MailPage({ customers, C, isMobile }: any) {
     )
     setLinkedCustomer(match || null)
     setCustomerSearch(match ? match.name : '')
-    // Parse formulärmail
+    async function archiveMail(emailId: string) {
+    try {
+      const r = await fetch('/api/mail', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ action: 'archive', emailId })
+      })
+      const d = await r.json()
+      if (d.success) {
+        setArchiveStatus('✓ Arkiverat')
+        setSelected(null)
+        loadEmails(folder)
+        setTimeout(() => setArchiveStatus(''), 2000)
+      }
+    } catch {}
+  }
+
+  async function aiCreateCustomer() {
+    if (!selected) return
+    setAiCreateLoading(true)
+    setAutoCreateStatus('')
+    try {
+      const r = await fetch('/api/ai', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          message: `Extrahera kunduppgifter från detta mail och returnera ENBART ett JSON-objekt med fälten: name, phone, email, address, note. Om ett fält saknas, sätt det till "". Mailtexten:
+
+Från: ${selected.from}
+Ämne: ${selected.subject}
+
+${selected.body}`,
+          customers: []
+        })
+      })
+      const d = await r.json()
+      const text = d.reply || d.message || ''
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const data = JSON.parse(jsonMatch[0])
+        data.email = data.email || selected.from
+        await autoCreateCustomer(data)
+      } else {
+        setAutoCreateStatus('AI kunde inte extrahera uppgifter')
+      }
+    } catch (e: any) {
+      setAutoCreateStatus('Fel: ' + e.message)
+    }
+    setAiCreateLoading(false)
+  }
+
+  // Parse formulärmail
     const parsed = parseFormEmail(email.body)
     setParsedForm(parsed)
   }
@@ -271,6 +324,57 @@ export default function MailPage({ customers, C, isMobile }: any) {
   }
 
   // ── NOT CONNECTED ──
+  async function archiveMail(emailId: string) {
+    try {
+      const r = await fetch('/api/mail', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ action: 'archive', emailId })
+      })
+      const d = await r.json()
+      if (d.success) {
+        setArchiveStatus('✓ Arkiverat')
+        setSelected(null)
+        loadEmails(folder)
+        setTimeout(() => setArchiveStatus(''), 2000)
+      }
+    } catch {}
+  }
+
+  async function aiCreateCustomer() {
+    if (!selected) return
+    setAiCreateLoading(true)
+    setAutoCreateStatus('')
+    try {
+      const r = await fetch('/api/ai', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          message: `Extrahera kunduppgifter från detta mail och returnera ENBART ett JSON-objekt med fälten: name, phone, email, address, note. Om ett fält saknas, sätt det till "". Mailtexten:
+
+Från: ${selected.from}
+Ämne: ${selected.subject}
+
+${selected.body}`,
+          customers: []
+        })
+      })
+      const d = await r.json()
+      const text = d.reply || d.message || ''
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const data = JSON.parse(jsonMatch[0])
+        data.email = data.email || selected.from
+        await autoCreateCustomer(data)
+      } else {
+        setAutoCreateStatus('AI kunde inte extrahera uppgifter')
+      }
+    } catch (e: any) {
+      setAutoCreateStatus('Fel: ' + e.message)
+    }
+    setAiCreateLoading(false)
+  }
+
   // Parse formulärmail (Nytt lead / kontaktformulär)
   function parseFormEmail(body: string): any {
     const lines = body.split('\n').map(l => l.trim()).filter(Boolean)
@@ -491,6 +595,11 @@ export default function MailPage({ customers, C, isMobile }: any) {
                 <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 2 }}>{selected.subject}</div>
                 <div style={{ fontSize: 12, color: C.textSec }}><strong style={{ color: C.text }}>{selected.fromName || selected.from}</strong> · {new Date(selected.date).toLocaleString('sv-SE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
               </div>
+              {/* Arkivera */}
+              <button onClick={() => archiveMail(selected.id)} title="Arkivera"
+                style={{ padding: '5px 10px', background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: C.textSec, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+                <i className="fas fa-archive" /> Arkivera
+              </button>
               {/* Koppla kund */}
               <div style={{ position: 'relative', flexShrink: 0 }}>
                 <button onClick={() => setShowCustSearch(!showCustSearch)}
@@ -529,10 +638,14 @@ export default function MailPage({ customers, C, isMobile }: any) {
                         ))}
                       </div>
                       {!linkedCustomer && (
-                        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
                           <button onClick={() => autoCreateCustomer(parsedForm)}
                             style={{ padding: '6px 14px', background: '#22c55e', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                            <i className="fas fa-user-plus" /> Skapa kund automatiskt
+                            <i className="fas fa-user-plus" /> Skapa kund (formulär)
+                          </button>
+                          <button onClick={aiCreateCustomer} disabled={aiCreateLoading}
+                            style={{ padding: '6px 14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: aiCreateLoading ? 0.7 : 1 }}>
+                            {aiCreateLoading ? <><i className="fas fa-spinner fa-spin" /> Analyserar...</> : <><i className="fas fa-magic" /> AI skapar kund</>}
                           </button>
                           {autoCreateStatus && <span style={{ fontSize: 12, fontWeight: 600, color: autoCreateStatus.startsWith('✓') ? '#22c55e' : '#ef4444' }}>{autoCreateStatus}</span>}
                         </div>
@@ -541,7 +654,18 @@ export default function MailPage({ customers, C, isMobile }: any) {
                     <pre style={{ fontSize: 13, color: C.textSec, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
                   </div>
                 ) : (
-                  <pre style={{ fontSize: 13, color: C.text, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
+                  <div>
+                    <pre style={{ fontSize: 13, color: C.text, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
+                    {!linkedCustomer && (
+                      <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' as const }}>
+                        <button onClick={aiCreateCustomer} disabled={aiCreateLoading}
+                          style={{ padding: '6px 14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: aiCreateLoading ? 0.7 : 1 }}>
+                          {aiCreateLoading ? <><i className="fas fa-spinner fa-spin" /> Analyserar...</> : <><i className="fas fa-magic" /> AI skapar kund</>}
+                        </button>
+                        {autoCreateStatus && <span style={{ fontSize: 12, fontWeight: 600, color: autoCreateStatus.startsWith('✓') ? '#22c55e' : '#ef4444' }}>{autoCreateStatus}</span>}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 

@@ -2162,6 +2162,53 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
           </div>
         </div>
       )}
+
+      {/* ── KUND MAIL MODAL ── */}
+      {customerMailOpen&&customerMailTarget&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={e=>{if(e.target===e.currentTarget)setCustomerMailOpen(false)}}>
+          <div style={{width:'min(700px,95vw)',maxHeight:'90vh',background:C.surface,borderRadius:12,display:'flex',flexDirection:'column',overflow:'hidden',border:`1px solid ${C.border}`}}>
+            <div style={{padding:'16px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+              <div>
+                <div style={{fontSize:16,fontWeight:700,color:C.text,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-envelope" style={{color:C.primary}}/> {customerMailTarget.name}</div>
+                <div style={{fontSize:12,color:C.textSec,marginTop:2}}>{customerMailTarget.email}</div>
+              </div>
+              <button onClick={()=>setCustomerMailOpen(false)} style={{width:32,height:32,background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,color:C.textSec,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:16}}>
+              {customerMailLoading
+                ?<div style={{textAlign:'center',padding:24,color:C.textSec}}><i className="fas fa-spinner fa-spin"/> Laddar...</div>
+                :customerMailThread.length===0
+                  ?<div style={{textAlign:'center',padding:24,color:C.textSec,fontSize:13}}>Ingen mailhistorik med {customerMailTarget.name}</div>
+                  :customerMailThread.map((m:any)=>{
+                    const isIncoming=m.from===customerMailTarget.email||m.from?.includes(customerMailTarget.email)
+                    return(
+                      <div key={m.id} style={{marginBottom:12,padding:'12px 14px',background:isIncoming?`${C.primary}08`:'transparent',border:`1px solid ${C.border}`,borderLeft:`3px solid ${isIncoming?C.primary:'#10b981'}`,borderRadius:8}}>
+                        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+                          <span style={{fontSize:12,fontWeight:600,color:isIncoming?C.primary:'#10b981'}}>{isIncoming?'↙ Inkommande':'↗ Skickat'} — {m.subject}</span>
+                          <span style={{fontSize:11,color:C.textSec}}>{new Date(m.date).toLocaleString('sv-SE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
+                        </div>
+                        <pre style={{fontSize:12,color:C.text,lineHeight:1.6,whiteSpace:'pre-wrap',fontFamily:'inherit',margin:0,maxHeight:120,overflow:'hidden'}}>{m.body}</pre>
+                      </div>
+                    )
+                  })
+              }
+            </div>
+            <div style={{padding:16,borderTop:`1px solid ${C.border}`,flexShrink:0}}>
+              <textarea value={customerMailCompose} onChange={e=>setCustomerMailCompose(e.target.value)} rows={4}
+                placeholder={`Skriv mail till ${customerMailTarget.name}...`}
+                style={{width:'100%',padding:'10px 12px',borderRadius:8,border:`1px solid ${C.border}`,background:C.input,color:C.text,fontSize:13,fontFamily:'inherit',outline:'none',resize:'vertical' as const,boxSizing:'border-box' as const,lineHeight:1.6,marginBottom:10}}/>
+              <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                <button onClick={sendCustomerMail} disabled={customerMailSending||!customerMailCompose.trim()}
+                  style={{padding:'8px 20px',background:C.primary,color:'white',border:'none',borderRadius:8,fontWeight:600,fontSize:13,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',gap:8,opacity:customerMailSending?0.7:1}}>
+                  {customerMailSending?<><i className="fas fa-spinner fa-spin"/> Skickar...</>:<><i className="fas fa-paper-plane"/> Skicka</>}
+                </button>
+                {customerMailStatus&&<span style={{fontSize:13,fontWeight:600,color:customerMailStatus.startsWith('✓')?'#10b981':'#ef4444'}}>{customerMailStatus}</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
