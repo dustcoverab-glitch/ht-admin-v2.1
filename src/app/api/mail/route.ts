@@ -5,8 +5,6 @@ const CLIENT_SECRET = process.env.MS_CLIENT_SECRET || ''
 const TENANT_ID = process.env.MS_TENANT_ID || 'common'
 const REDIRECT_URI = process.env.MS_REDIRECT_URI || 'https://ht-admin-v2-1.vercel.app/api/mail/callback'
 
-const TOKEN_STORE: Record<string, any> = {}
-
 function getAuthUrl() {
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
@@ -18,68 +16,48 @@ function getAuthUrl() {
   return `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize?${params}`
 }
 
-async function getAccessToken(): Promise<string | null> {
-  const stored = TOKEN_STORE['token']
-  if (!stored) return null
-  if (stored.expires_at > Date.now() + 60000) return stored.access_token
-  // Refresh
-  try {
-    const r = await fetch(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        grant_type: 'refresh_token',
-        refresh_token: stored.refresh_token,
-        scope: 'offline_access Mail.ReadWrite Mail.Send',
-      })
+async function refreshToken(refreshToken: string): Promise<any> {
+  const r = await fetch(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      scope: 'offline_access Mail.ReadWrite Mail.Send',
     })
-    const d = await r.json()
-    if (d.access_token) {
-      TOKEN_STORE['token'] = { ...d, expires_at: Date.now() + d.expires_in * 1000 }
-      return d.access_token
-    }
-  } catch {}
-  return null
+  })
+  return r.json()
 }
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const action = searchParams.get('action')
 
-  // OAuth callback
-  if (searchParams.get('code')) {
-    const code = searchParams.get('code')!
-    const r = await fetch(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: REDIRECT_URI,
-      })
-    })
-    const d = await r.json()
-    if (d.access_token) {
-      TOKEN_STORE['token'] = { ...d, expires_at: Date.now() + d.expires_in * 1000 }
-      return NextResponse.redirect(new URL('/dashboard?mail=connected', req.url))
-    }
-    return NextResponse.redirect(new URL('/dashboard?mail=error', req.url))
-  }
+  const accessToken = req.cookies.get('ms_access_token')?.value
+  const storedRefresh = req.cookies.get('ms_refresh_token')?.value
 
   if (action === 'status') {
-    const token = await getAccessToken()
-    if (token) return NextResponse.json({ connected: true })
     if (!CLIENT_ID) return NextResponse.json({ connected: false, error: 'MS_CLIENT_ID not configured' })
+    if (accessToken || storedRefresh) return NextResponse.json({ connected: true })
     return NextResponse.json({ connected: false, authUrl: getAuthUrl() })
   }
 
+  // Get valid token
+  async function getToken(): Promise<{ token: string | null, newAccess?: string, newRefresh?: string, newExpiry?: number }> {
+    if (accessToken) return { token: accessToken }
+    if (storedRefresh) {
+      const d = await refreshToken(storedRefresh)
+      if (d.access_token) return { token: d.access_token, newAccess: d.access_token, newRefresh: d.refresh_token, newExpiry: d.expires_in }
+    }
+    return { token: null }
+  }
+
   if (action === 'list') {
-    const token = await getAccessToken()
-    if (!token) return NextResponse.json({ emails: [], error: 'Not authenticated' })
+    const { token, newAccess, newRefresh, newExpiry } = await getToken()
+    if (!token) return NextResponse.json({ emails: [], error: 'Not authenticated', authUrl: getAuthUrl() })
+
     const folder = searchParams.get('folder') === 'sent' ? 'sentItems' : 'inbox'
     const r = await fetch(
       `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages?$top=30&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
@@ -87,6 +65,7 @@ export async function GET(req: NextRequest) {
     )
     const d = await r.json()
     if (!d.value) return NextResponse.json({ emails: [], error: d.error?.message })
+
     const emails = d.value.map((m: any) => ({
       id: m.id,
       subject: m.subject || '(inget ämne)',
@@ -95,11 +74,23 @@ export async function GET(req: NextRequest) {
       date: m.receivedDateTime,
       unread: !m.isRead,
       preview: m.bodyPreview?.slice(0, 80) || '',
-      body: m.body?.content?.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s{3,}/g, '\n\n').trim() || '',
+      body: m.body?.content
+        ?.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        ?.replace(/<[^>]+>/g, '')
+        ?.replace(/&nbsp;/g, ' ')
+        ?.replace(/&amp;/g, '&')
+        ?.replace(/&lt;/g, '<')
+        ?.replace(/&gt;/g, '>')
+        ?.replace(/\s{3,}/g, '\n\n')
+        ?.trim() || '',
       replyTo: m.replyTo?.[0]?.emailAddress?.address || m.from?.emailAddress?.address || '',
       threadId: m.conversationId,
     }))
-    return NextResponse.json({ emails })
+
+    const res = NextResponse.json({ emails })
+    if (newAccess) res.cookies.set('ms_access_token', newAccess, { httpOnly: true, secure: true, maxAge: newExpiry, path: '/' })
+    if (newRefresh) res.cookies.set('ms_refresh_token', newRefresh, { httpOnly: true, secure: true, maxAge: 60 * 60 * 24 * 30, path: '/' })
+    return res
   }
 
   return NextResponse.json({ error: 'Unknown action' })
@@ -109,8 +100,20 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { action } = body
 
+  const accessToken = req.cookies.get('ms_access_token')?.value
+  const storedRefresh = req.cookies.get('ms_refresh_token')?.value
+
+  async function getToken(): Promise<string | null> {
+    if (accessToken) return accessToken
+    if (storedRefresh) {
+      const d = await refreshToken(storedRefresh)
+      if (d.access_token) return d.access_token
+    }
+    return null
+  }
+
   if (action === 'send') {
-    const token = await getAccessToken()
+    const token = await getToken()
     if (!token) return NextResponse.json({ success: false, error: 'Not authenticated' })
 
     const message: any = {
