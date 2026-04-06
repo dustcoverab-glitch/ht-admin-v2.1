@@ -1611,17 +1611,29 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                                 if(data.material_items?.length>0){
                                   setMaterialItems(data.material_items.map((i:any)=>({name:String(i.name||''),qty:String(i.qty||1),unit_price:String(i.unit_price||0)})))
                                 }
-                                // Sätt pris exkl moms automatiskt om det hittades
-                                if(data.total_price_excl_vat&&data.total_price_excl_vat>0&&current?.id){
+                                // Spara PDF + pris på kunden
+                                if(current?.id){
                                   const {updateDoc,doc:fsDoc}=await import('firebase/firestore')
                                   const {db:fsDb}=await import('@/lib/firebase')
-                                  await updateDoc(fsDoc(fsDb,'customers',current.id),{price_excl_vat:String(data.total_price_excl_vat)})
-                                  setCurrent((p:any)=>({...p,price_excl_vat:String(data.total_price_excl_vat)}))
-                                  setMaterialMsg(`✓ ${data.material_items?.length||0} material + pris ${data.total_price_excl_vat.toLocaleString('sv')} kr sparat`)
-                                } else {
-                                  setMaterialMsg(data.material_items?.length>0?`✓ Hittade ${data.material_items.length} materialposter`:'⚠️ Inga poster hittades')
+                                  const updateData:any={
+                                    pdf_name: file.name,
+                                    pdf_base64: base64Data,
+                                    pdf_uploaded_at: new Date().toISOString(),
+                                  }
+                                  if(data.total_price_excl_vat&&data.total_price_excl_vat>0){
+                                    updateData.price_excl_vat=String(data.total_price_excl_vat)
+                                  }
+                                  await updateDoc(fsDoc(fsDb,'customers',current.id),updateData)
+                                  setCurrent((p:any)=>({
+                                    ...p,
+                                    pdf_name:file.name,
+                                    pdf_base64:base64Data,
+                                    pdf_uploaded_at:updateData.pdf_uploaded_at,
+                                    ...(updateData.price_excl_vat?{price_excl_vat:updateData.price_excl_vat}:{})
+                                  }))
+                                  const priceStr=data.total_price_excl_vat>0?` · pris ${data.total_price_excl_vat.toLocaleString('sv')} kr`:''
+                                  setMaterialMsg(`✓ PDF sparad · ${data.material_items?.length||0} material${priceStr}`)
                                 }
-                                setTimeout(()=>setMaterialMsg(''),6000)
                               }
                             }catch(err:any){
                               setMaterialMsg(`❌ Fel: ${err.message}`)
@@ -1631,8 +1643,23 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                           e.target.value=''
                         }}/>
                       </label>
-                      <span style={{fontSize:11,color:C.textSec}}>PDF läses av — fyller in material och sätter pris automatiskt</span>
+                      <span style={{fontSize:11,color:C.textSec}}>PDF läses av — fyller in material, sätter pris och sparas på kunden</span>
                     </div>
+                    {/* Sparad PDF-länk */}
+                    {current?.pdf_name&&(
+                      <div style={{marginTop:8,display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:`${C.primary}10`,border:`1px solid ${C.primary}30`,borderRadius:8}}>
+                        <i className="fas fa-file-pdf" style={{color:'#ef4444',fontSize:14}}/>
+                        <span style={{fontSize:12,color:C.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{current.pdf_name}</span>
+                        <button onClick={()=>{
+                          const link=document.createElement('a')
+                          link.href=`data:application/pdf;base64,${current.pdf_base64}`
+                          link.download=current.pdf_name
+                          link.click()
+                        }} style={{background:'none',border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 10px',color:C.primary,fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+                          <i className="fas fa-download"/> Öppna
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:12,marginBottom:20}}>
                     {([
