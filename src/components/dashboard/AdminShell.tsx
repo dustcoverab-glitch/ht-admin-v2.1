@@ -152,7 +152,7 @@ const DARK={bg:'#000000',surface:'#111111',border:'#333333',text:'#ededed',textS
 /* ─── STATUS BADGE ───────────────────────────────────────────── */
 function StatusBadge({status}:{status:string}){
   const colors:Record<string,{bg:string,text:string}>={
-    new:      {bg:'rgba(245,158,11,0.15)',  text:'#f59e0b'},
+    new:      {bg:'rgba(239,68,68,0.15)',   text:'#ef4444'},
     in_progress:{bg:'rgba(59,130,246,0.15)',text:'#3b82f6'},
     completed:{bg:'rgba(16,185,129,0.15)', text:'#10b981'},
     rejected: {bg:'rgba(239,68,68,0.15)',  text:'#ef4444'},
@@ -902,7 +902,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                   const accentColor=log.log_type==='comment'?C.primary:log.log_type==='status_change'?'#10b981':'#f59e0b'
                   const cust=customers.find(c=>c.id===log.customer_id)
                   return(
-                    <div key={log.id} style={{padding:'10px 14px',background:C.bg,borderRadius:8,borderLeft:`3px solid ${accentColor}`,display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                    <div key={log.id} style={{padding:'10px 14px',background:`${accentColor}08`,borderRadius:8,border:`1px solid ${accentColor}25`,borderLeft:`3px solid ${accentColor}`,display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
                       <div>
                         {cust&&<div style={{fontSize:12,fontWeight:700,color:C.primary,marginBottom:2,cursor:'pointer'}} onClick={()=>openCustomer(cust)}>{cust.name}</div>}
                         <div style={{fontSize:13,color:C.text}}>{log.content}</div>
@@ -1057,54 +1057,75 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
           })}
         </div>
 
-        {/* Jobb per dag */}
-        <div style={{display:'grid',gridTemplateColumns:isMobile?'60px repeat(7,1fr)':'80px repeat(7,1fr)',minHeight:300}}>
-          {/* Tidsetikett */}
-          <div style={{borderRight:`1px solid ${C.border}`,padding:'12px 8px',display:'flex',flexDirection:'column',gap:4,alignItems:'center'}}>
-            <span style={{fontSize:10,color:C.textSec,fontWeight:600}}>JOBB</span>
-          </div>
-          {weekDays.map((d,i)=>{
-            const dateStr=d.toISOString().split('T')[0]
-            const dayJobs=customers.filter(c=>c.booked_date===dateStr&&!c.rejected)
-            const isToday=dateStr===todayStr
-            return(
-              <div key={i} style={{borderRight:i<6?`1px solid ${C.border}`:'none',padding:6,background:isToday?`${C.primary}05`:'transparent',minHeight:200,display:'flex',flexDirection:'column',gap:4}}>
-                {dayJobs.length===0
-                  ?<div style={{flex:1,minHeight:80,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                    <span style={{fontSize:10,color:C.border}}>–</span>
-                  </div>
-                  :dayJobs.map(c=>{
-                    const svcs=getServices(c)
-                    const statusColors:Record<string,string>={new:'#f59e0b',in_progress:C.primary,completed:'#10b981',rejected:'#ef4444'}
-                    const s=getStatus(c)
-                    const timeStr=c.booked_time?(c.booked_end_time?`${c.booked_time}–${c.booked_end_time}`:c.booked_time):''
-                    return(
-                      <div key={c.id} style={{background:`${statusColors[s]}15`,border:`1.5px solid ${statusColors[s]}40`,borderLeft:`3px solid ${statusColors[s]}`,borderRadius:8,padding:'6px 8px',transition:'all 0.15s',position:'relative' as const}}>
-                        <div onClick={()=>openCustomer(c)} style={{cursor:'pointer'}}>
-                          {timeStr&&<div style={{fontSize:9,color:C.primary,fontWeight:700,marginBottom:2}}>{timeStr}</div>}
-                          <div style={{fontSize:isMobile?10:12,fontWeight:700,color:C.text,marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
-                          <div style={{fontSize:10,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</div>
-                          {svcs.length>0&&<div style={{fontSize:9,color:statusColors[s],fontWeight:600,marginTop:2}}>{svcs.map((sv:string)=>svcLabel(sv)).join(', ')}</div>}
-                        </div>
-                        <button onClick={e=>{e.stopPropagation();removeFromCalendar(c.id)}}
-                          title="Ta bort från kalender"
-                          style={{position:'absolute',top:4,right:4,width:16,height:16,background:'rgba(239,68,68,0.15)',border:'none',borderRadius:3,color:'#ef4444',cursor:'pointer',fontSize:9,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1,padding:0}}>
-                          ✕
-                        </button>
-                      </div>
-                    )
-                  })
-                }
-                <button onClick={e=>{e.stopPropagation();setCalAddDate(dateStr);setCalAddTime('08:00');setCalAddEndTime('10:00');setCalAddCustomerId('');setCalAddSearch('');setCalAddService('');setCalAddStep(0);setCalAddModal(true)}}
-                  style={{marginTop:'auto',width:'100%',padding:'3px 0',background:'transparent',border:`1px dashed ${C.border}`,borderRadius:6,color:C.textSec,cursor:'pointer',fontSize:isMobile?9:10,fontFamily:'inherit',transition:'all 0.15s'}}
-                  onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.primary;(e.currentTarget as HTMLElement).style.color=C.primary}}
-                  onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.border;(e.currentTarget as HTMLElement).style.color=C.textSec}}>
-                  + Lägg till
-                </button>
+        {/* Tidslinje 07–20 */}
+        {(()=>{
+          const HOUR_START=7,HOUR_END=20,HOUR_COUNT=HOUR_END-HOUR_START,HOUR_H=40
+          const TIMELINE_H=HOUR_COUNT*HOUR_H
+          const hours=Array.from({length:HOUR_COUNT+1},(_,i)=>HOUR_START+i)
+          return(
+            <div style={{display:'grid',gridTemplateColumns:isMobile?'36px repeat(7,1fr)':'36px repeat(7,1fr)'}}>
+              {/* Y-axel med timmar */}
+              <div style={{borderRight:`1px solid ${C.border}`,position:'relative' as const,height:TIMELINE_H+8}}>
+                {hours.map(h=>(
+                  <div key={h} style={{position:'absolute' as const,top:(h-HOUR_START)*HOUR_H-8,right:4,fontSize:9,color:C.textSec,fontWeight:600,lineHeight:1}}>{String(h).padStart(2,'0')}</div>
+                ))}
               </div>
-            )
-          })}
-        </div>
+              {weekDays.map((d,i)=>{
+                const dateStr=d.toISOString().split('T')[0]
+                const rawJobs=customers.filter(c=>c.booked_date===dateStr&&!c.rejected)
+                const dayJobs=[...rawJobs].sort((a,b)=>(a.booked_time||'00:00').localeCompare(b.booked_time||'00:00'))
+                const isToday=dateStr===todayStr
+                return(
+                  <div key={i} style={{borderRight:i<6?`1px solid ${C.border}`:'none',position:'relative' as const,height:TIMELINE_H+8,background:isToday?`${C.primary}05`:'transparent'}}>
+                    {/* Horisontella timlinjer */}
+                    {hours.map(h=>(
+                      <div key={h} style={{position:'absolute' as const,top:(h-HOUR_START)*HOUR_H,left:0,right:0,borderTop:`1px solid ${C.border}`,opacity:0.5}}/>
+                    ))}
+                    {/* Jobb-kort */}
+                    {dayJobs.map(c=>{
+                      const statusColors:Record<string,string>={new:'#ef4444',in_progress:C.primary,completed:'#10b981',rejected:'#888888'}
+                      const s=getStatus(c)
+                      const color=statusColors[s]||'#888'
+                      let topPx=0,heightPx=HOUR_H
+                      if(c.booked_time){
+                        const [sh,sm]=(c.booked_time||'07:00').split(':').map(Number)
+                        topPx=(sh-HOUR_START+sm/60)*HOUR_H
+                        if(c.booked_end_time){
+                          const [eh,em]=(c.booked_end_time||'08:00').split(':').map(Number)
+                          const dur=(eh-sh+(em-sm)/60)
+                          heightPx=Math.max(HOUR_H,dur*HOUR_H)
+                        }
+                      }
+                      const svcs=getServices(c)
+                      return(
+                        <div key={c.id} style={{position:'absolute' as const,top:topPx,left:2,right:2,height:heightPx,background:`${color}18`,border:`1px solid ${color}40`,borderLeft:`3px solid ${color}`,borderRadius:6,overflow:'hidden',zIndex:1,transition:'all 0.15s'}}>
+                          <div onClick={()=>openCustomer(c)} style={{cursor:'pointer',padding:'3px 5px',height:'100%',overflow:'hidden'}}>
+                            {c.booked_time&&<div style={{fontSize:8,color:color,fontWeight:700,lineHeight:1.2}}>{c.booked_time}{c.booked_end_time?`–${c.booked_end_time}`:''}</div>}
+                            <div style={{fontSize:isMobile?9:11,fontWeight:700,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
+                            {heightPx>HOUR_H&&<div style={{fontSize:9,color:C.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.address}</div>}
+                            {heightPx>HOUR_H&&svcs.length>0&&<div style={{fontSize:8,color:color,fontWeight:600,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{svcs.map((sv:string)=>svcLabel(sv)).join(', ')}</div>}
+                          </div>
+                          <button onClick={e=>{e.stopPropagation();removeFromCalendar(c.id)}}
+                            title="Ta bort från kalender"
+                            style={{position:'absolute',top:2,right:2,width:14,height:14,background:'rgba(239,68,68,0.15)',border:'none',borderRadius:3,color:'#ef4444',cursor:'pointer',fontSize:8,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1,padding:0,zIndex:2}}>
+                            ✕
+                          </button>
+                        </div>
+                      )
+                    })}
+                    {/* Lägg-till knapp längst ned */}
+                    <button onClick={e=>{e.stopPropagation();setCalAddDate(dateStr);setCalAddTime('08:00');setCalAddEndTime('10:00');setCalAddCustomerId('');setCalAddSearch('');setCalAddService('');setCalAddStep(0);setCalAddModal(true)}}
+                      style={{position:'absolute' as const,bottom:0,left:0,right:0,padding:'2px 0',background:'transparent',border:`1px dashed ${C.border}`,borderTop:'none',color:C.textSec,cursor:'pointer',fontSize:isMobile?9:10,fontFamily:'inherit',transition:'all 0.15s',zIndex:2}}
+                      onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.primary;(e.currentTarget as HTMLElement).style.color=C.primary}}
+                      onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.border;(e.currentTarget as HTMLElement).style.color=C.textSec}}>
+                      +
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })()}
       </div>
 
       {/* Denna veckas jobb - summering */}
@@ -1193,13 +1214,13 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
         {/* ── ÅRSUNDERHÅLL ── */}
         {page==='underhall'&&<>
           <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fit,minmax(220px,1fr))',gap:16,marginBottom:24}}>
-            <div style={{background:'#f0fdf4',padding:'20px 24px',borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',display:'flex',alignItems:'center',gap:16}}>
+            <div style={{background:C.surface,padding:'20px 24px',borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',display:'flex',alignItems:'center',gap:16}}>
               <div style={{width:60,height:60,borderRadius:12,background:'rgba(16,185,129,0.15)',display:'flex',alignItems:'center',justifyContent:'center'}}><i className="fas fa-file-signature" style={{fontSize:24,color:'#10b981'}}/></div>
-              <div><div style={{fontSize:32,fontWeight:700,color:'#10b981'}}>{uhContracts.length}</div><div style={{fontSize:14,color:'#64748b'}}>Signerade avtal</div></div>
+              <div><div style={{fontSize:32,fontWeight:700,color:'#10b981'}}>{uhContracts.length}</div><div style={{fontSize:14,color:C.textSec}}>Signerade avtal</div></div>
             </div>
-            <div style={{background:'#f0f9ff',padding:'20px 24px',borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',display:'flex',alignItems:'center',gap:16}}>
+            <div style={{background:C.surface,padding:'20px 24px',borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',display:'flex',alignItems:'center',gap:16}}>
               <div style={{width:60,height:60,borderRadius:12,background:'rgba(37,99,235,0.1)',display:'flex',alignItems:'center',justifyContent:'center'}}><i className="fas fa-money-bill-wave" style={{fontSize:24,color:'#2563eb'}}/></div>
-              <div><div style={{fontSize:28,fontWeight:700,color:'#2563eb'}}>{fmtCur(uhContracts.reduce((s,c)=>s+(parseFloat(c.amount)||0),0))}</div><div style={{fontSize:14,color:'#64748b'}}>Total årlig omsättning</div></div>
+              <div><div style={{fontSize:28,fontWeight:700,color:'#2563eb'}}>{fmtCur(uhContracts.reduce((s,c)=>s+(parseFloat(c.amount)||0),0))}</div><div style={{fontSize:14,color:C.textSec}}>Total årlig omsättning</div></div>
             </div>
             <div style={{background:C.surface,padding:'20px 24px',borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',display:'flex',alignItems:'center',gap:16}}>
               <div style={{width:60,height:60,borderRadius:12,background:'rgba(245,158,11,0.1)',display:'flex',alignItems:'center',justifyContent:'center'}}><i className="fas fa-calculator" style={{fontSize:24,color:'#f59e0b'}}/></div>
@@ -1219,9 +1240,9 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               {[...uhContracts].sort((a,b)=>Number(!!a.done)-Number(!!b.done)).map(c=>{
                 const amt=parseFloat(c.amount)||0
                 return(
-                  <div key={c.id} onClick={()=>openUhDetail(c.id)} style={{background:c.done?'#f0fdf4':C.surface,padding:'20px 24px',borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',cursor:'pointer',border:`2px solid ${c.done?'#86efac':'transparent'}`,transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}
-                    onMouseEnter={e=>(e.currentTarget.style.borderColor=c.done?'#86efac':'#10b981')}
-                    onMouseLeave={e=>(e.currentTarget.style.borderColor=c.done?'#86efac':'transparent')}>
+                  <div key={c.id} onClick={()=>openUhDetail(c.id)} style={{background:c.done?'rgba(16,185,129,0.08)':C.surface,padding:'20px 24px',borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',cursor:'pointer',border:c.done?'2px solid rgba(16,185,129,0.4)':`1px solid ${C.border}`,transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}
+                    onMouseEnter={e=>(e.currentTarget.style.borderColor=c.done?'rgba(16,185,129,0.7)':'#10b981')}
+                    onMouseLeave={e=>(e.currentTarget.style.borderColor=c.done?'rgba(16,185,129,0.4)':C.border)}>
                     <div style={{display:'flex',flexDirection:'column',gap:4}}>
                       <span style={{fontSize:16,fontWeight:600,color:C.text,opacity:c.done?0.7:1}}>{c.name}</span>
                       <span style={{fontSize:13,color:C.textSec,display:'flex',alignItems:'center',gap:6}}><i className="fas fa-map-marker-alt" style={{color:C.primary,width:14}}/>{c.address}</span>
@@ -1667,7 +1688,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                       const isEditing=editLogId===log.id
                       const accentColor=log.log_type==='comment'?C.primary:log.log_type==='status_change'?'#10b981':'#f59e0b'
                       return(
-                        <div key={log.id} style={{padding:'10px 14px',background:C.bg,borderRadius:8,borderLeft:`3px solid ${accentColor}`}}>
+                        <div key={log.id} style={{padding:'10px 14px',background:`${accentColor}08`,borderRadius:8,border:`1px solid ${accentColor}25`,borderLeft:`3px solid ${accentColor}`}}>
                           <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,gap:8}}>
                             <span style={{fontSize:12,fontWeight:500,color:C.textSec}}>
                               <i className={log.log_type==='comment'?'fas fa-comment':log.log_type==='status_change'?'fas fa-sync':'fas fa-clock'}/>
@@ -1958,7 +1979,7 @@ function CustomerCard({c,C,onClick}:{c:any,C:any,onClick:()=>void}){
   const svcs=getServices(c),kvm=getKvm(c)
   const svcStr=svcs.map((s:string)=>`${svcLabel(s)} (${kvm[s]||0}kvm)`).join(', ')
   const price=parseFloat(c.price_excl_vat)||0
-  const statusColors:Record<string,string>={new:'#f59e0b',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
+  const statusColors:Record<string,string>={new:'#ef4444',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
   const topColor=statusColors[status]||'#888'
   return(
     <div onClick={onClick} style={{background:C.surface,padding:18,borderRadius:12,border:`1px solid ${C.border}`,borderTop:`3px solid ${topColor}`,cursor:'pointer',transition:'border-color 0.15s,box-shadow 0.15s'}}
@@ -2098,7 +2119,17 @@ function DonutChart({data,C}:{data:{label:string,value:number,color:string}[],C:
 /* ─── STAT PAGE ──────────────────────────────────────────────── */
 function StatPage({customers,allLogs,C,isMobile}:any){
   const GOAL=2_500_000
-  const completedJobs=customers.filter((c:any)=>!c.rejected&&(parseFloat(c.price_excl_vat)||0)>0&&(getStatus(c)==='completed'||getStatus(c)==='in_progress'))
+  const completedJobs=customers.filter((c:any)=>{
+    if(c.rejected)return false
+    if(!(parseFloat(c.price_excl_vat)||0))return false
+    const p=getProgress(c),svcs=getServices(c)
+    if(!svcs.length)return false
+    return svcs.every((s:string)=>{
+      const steps=getSteps(s,c.include_fogsand)
+      const lastIdx=steps.length-1
+      return (p[s]||0)>=lastIdx
+    })
+  })
   const totalRev=completedJobs.reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0)
   const avgRev=completedJobs.length?Math.round(totalRev/completedJobs.length):0
   const timeLogs=allLogs.filter((l:any)=>l.log_type==='time_log'&&l.time_spent)
@@ -2270,6 +2301,69 @@ function StatPage({customers,allLogs,C,isMobile}:any){
           </div>
         )}
       </div>
+
+      {/* ══ PANEL 2b: Material & täckningsbidrag ══ */}
+      {(()=>{
+        const jobsWithMaterial=completedJobs.filter((c:any)=>Array.isArray(c.material_items)&&c.material_items.length>0&&c.material_items.some((i:any)=>i.name?.trim()))
+        if(!jobsWithMaterial.length)return null
+        const totalMaterialCost=jobsWithMaterial.reduce((s:number,c:any)=>s+((c.material_items||[]).reduce((ms:number,i:any)=>{const q=parseFloat(String(i.qty||0)),u=parseFloat(String(i.unit_price||0));return ms+q*u},0)),0)
+        const totalRevWithMaterial=jobsWithMaterial.reduce((s:number,c:any)=>s+(parseFloat(c.price_excl_vat)||0),0)
+        const totalProfitMaterial=totalRevWithMaterial-totalMaterialCost
+        const materialMarginPct=totalRevWithMaterial>0?Math.round(totalProfitMaterial/totalRevWithMaterial*100):0
+        return(
+          <div style={{background:C.surface,borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.07)',marginBottom:16,overflow:'hidden'}}>
+            <div style={{padding:'12px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:8}}>
+              <i className="fas fa-box" style={{color:'#f59e0b',fontSize:13}}/>
+              <span style={{fontWeight:700,fontSize:13,color:C.text}}>Material & täckningsbidrag</span>
+              <span style={{marginLeft:'auto',fontSize:11,color:C.textSec}}>{jobsWithMaterial.length} jobb med material</span>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',borderBottom:`1px solid ${C.border}`}}>
+              {([
+                ['fas fa-coins','Intäkt (m. material)',totalRevWithMaterial>0?fmtCur(Math.round(totalRevWithMaterial)):'—','#3b82f6'],
+                ['fas fa-box-open','Materialkostnad',totalMaterialCost>0?fmtCur(Math.round(totalMaterialCost)):'—','#f59e0b'],
+                ['fas fa-chart-line','Täckningsbidrag',totalProfitMaterial>0?fmtCur(Math.round(totalProfitMaterial)):'—',totalProfitMaterial>=0?'#10b981':'#ef4444'],
+                ['fas fa-percent','Marginal',materialMarginPct>0?`${materialMarginPct}%`:'—',materialMarginPct>=50?'#10b981':materialMarginPct>=25?'#f59e0b':'#ef4444'],
+              ] as [string,string,string,string][]).map(([icon,label,val,color],idx,arr)=>(
+                <div key={label} style={{padding:'16px 20px',borderRight:idx<arr.length-1?`1px solid ${C.border}`:'none',display:'flex',alignItems:'center',gap:10}}>
+                  <div style={{width:34,height:34,borderRadius:9,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                    <i className={icon} style={{fontSize:14,color}}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:16,fontWeight:700,color:C.text}}>{val}</div>
+                    <div style={{fontSize:11,color:C.textSec,marginTop:1}}>{label}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{padding:'12px 20px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:6,fontSize:12}}>
+                <span style={{color:C.textSec}}>Materialkostnad {totalRevWithMaterial>0?Math.round(totalMaterialCost/totalRevWithMaterial*100):0}%</span>
+                <span style={{color:'#10b981',fontWeight:600}}>Vinst {materialMarginPct}%</span>
+              </div>
+              <div style={{height:8,background:C.bg,borderRadius:9999,overflow:'hidden',border:`1px solid ${C.border}`}}>
+                <div style={{height:'100%',display:'flex',borderRadius:9999,overflow:'hidden'}}>
+                  <div style={{width:`${totalRevWithMaterial>0?Math.round(totalMaterialCost/totalRevWithMaterial*100):0}%`,background:'#f59e0b',transition:'width 0.4s'}}/>
+                  <div style={{flex:1,background:'#10b981'}}/>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:12,marginTop:8,flexWrap:'wrap' as const}}>
+                {jobsWithMaterial.slice(0,5).map((c:any)=>{
+                  const matCost=(c.material_items||[]).reduce((s:number,i:any)=>{const q=parseFloat(String(i.qty||0)),u=parseFloat(String(i.unit_price||0));return s+q*u},0)
+                  const rev=parseFloat(c.price_excl_vat)||0
+                  const margin=rev>0?Math.round((rev-matCost)/rev*100):0
+                  return(
+                    <span key={c.id} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 10px',background:C.bg,borderRadius:9999,border:`1px solid ${C.border}`,fontSize:12}}>
+                      <span style={{color:C.text,fontWeight:600}}>{c.name}</span>
+                      <span style={{color:C.textSec}}>{fmtCur(Math.round(matCost))}</span>
+                      <span style={{color:margin>=50?'#10b981':'#f59e0b',fontWeight:700}}>{margin}%</span>
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ══ PANEL 3: Månadsdiagram + Munkdiagram ══ */}
       <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:16,marginBottom:16}}>
