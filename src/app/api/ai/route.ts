@@ -362,6 +362,34 @@ async function executeFunction(name: string, args: Record<string, unknown>): Pro
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
+
+    // ── PDF-extraktion (action: 'pdf') ──
+    if (body.action === 'pdf') {
+      const pdfBase64 = String(body.pdfBase64 ?? '')
+      const customerId = String(body.customerId ?? '')
+      if (!pdfBase64) return NextResponse.json({ error: 'pdfBase64 saknas' }, { status: 400 })
+      const response = await anthropic.messages.create({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 1024,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } } as any,
+            { type: 'text', text: 'Analysera denna offert-PDF. Extrahera ALLA materialposter med namn, antal och styckpris (exkl. moms). Returnera ENBART giltig JSON: {"material_items":[{"name":"Materialnamn","qty":1,"unit_price":100}]}. Inkludera ENBART material/produkter, INTE arbete eller tjänster. Om inga hittas, returnera {"material_items":[]}.' }
+          ]
+        }],
+      })
+      const tb = response.content.find((b: any) => b.type === 'text') as any
+      if (!tb) return NextResponse.json({ material_items: [] })
+      const match = tb.text.match(/\{[\s\S]*"material_items"[\s\S]*\}/)
+      if (!match) return NextResponse.json({ material_items: [] })
+      const parsed = JSON.parse(match[0])
+      const material_items = (parsed.material_items ?? []).map((i: any) => ({
+        name: String(i.name ?? ''), qty: Number(i.qty ?? 1), unit_price: Number(i.unit_price ?? 0)
+      }))
+      return NextResponse.json({ material_items, customer_id: customerId })
+    }
+
     const userMessage = String(body.message ?? body.messages?.[body.messages?.length - 1]?.content ?? '')
     const sessionId = String(body.sessionId ?? 'default')
     const hasImage = Boolean(body.hasImage ?? false)

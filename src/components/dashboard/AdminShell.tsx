@@ -1593,10 +1593,10 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                             const base64=ev.target?.result as string
                             const base64Data=base64.split(',')[1]
                             try{
-                              const res=await fetch('/api/ai/pdf',{
+                              const res=await fetch('/api/ai',{
                                 method:'POST',
                                 headers:{'Content-Type':'application/json'},
-                                body:JSON.stringify({pdfBase64:base64Data,customerId:current?.id??''})
+                                body:JSON.stringify({action:'pdf',pdfBase64:base64Data,customerId:current?.id??''})
                               })
                               const data=await res.json()
                               if(data.error){
