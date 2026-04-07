@@ -191,6 +191,29 @@ const tools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'reject_customer',
+    description: 'Markera kund som ej accepterad (rejected=true). Bekräfta med användaren om confirmed är false.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        customer_id: { type: 'string', description: 'Personens namn eller Firestore-ID' },
+        confirmed: { type: 'boolean', description: 'true = användaren har bekräftat' },
+      },
+      required: ['customer_id', 'confirmed'],
+    },
+  },
+  {
+    name: 'unreject_customer',
+    description: 'Ångra ej-accepterad — sätt rejected=false på kund.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        customer_id: { type: 'string', description: 'Personens namn eller Firestore-ID' },
+      },
+      required: ['customer_id'],
+    },
+  },
+  {
     name: 'get_customer_status',
     description: 'Hämta fullständig processtatus för en namngiven kund. Returnerar service_progress (nuvarande steg per tjänst) och service_kvm. ANVÄND ALLTID detta tool när användaren frågar var en specifik kund är i processen.',
     input_schema: {
@@ -370,6 +393,20 @@ async function executeFunction(name: string, args: Record<string, unknown>): Pro
         if (logsSnap.docs.length > 0) await deleteBatch.commit()
         return { success: true, deleted_name: customerName, logs_deleted: logsSnap.docs.length }
       }
+      case 'reject_customer': {
+        const confirmed = Boolean(args.confirmed ?? false)
+        const found = await findDoc(String(args.customer_id ?? ''), 'customers')
+        if (!found) return { error: 'Hittade ingen kund med ' + args.customer_id }
+        if (!confirmed) return { needs_confirmation: true, message: 'Vill du markera ' + found.data.name + ' som ej accepterad? Svara ja för att bekräfta.' }
+        await found.ref.update({ rejected: true, updated_at: new Date().toISOString() })
+        return { success: true, name: found.data.name, rejected: true }
+      }
+      case 'unreject_customer': {
+        const found = await findDoc(String(args.customer_id ?? ''), 'customers')
+        if (!found) return { error: 'Hittade ingen kund med ' + args.customer_id }
+        await found.ref.update({ rejected: false, updated_at: new Date().toISOString() })
+        return { success: true, name: found.data.name, rejected: false }
+      }
       default: return { error: `Okänd funktion: ${name}` }
     }
   } catch (err: any) {
@@ -435,6 +472,9 @@ REGLER:
 13. get_stats → kör för att visa omsättning, antal kunder, statistik
 14. Svara ALLTID på svenska
 15. Vid sök efter kund: kör find_person_by_name FÖRST, visa sedan all info inklusive processteg
+16. Markera kund som ej accepterad → reject_customer (bekräfta alltid med användaren)
+17. Ångra ej-accepterad → unreject_customer
+18. Du kan göra ALLT som rör kundhantering — använd alltid rätt verktyg direkt
 
 TJÄNSTESTEG (visa dessa när du förklarar status):
 • stentvatt (med fogsand): Ej påbörjad → Inbokat hembesök → Hembesök → Offert → Bokat → Stentvätt → Impregnering → Fogsand → Fakturerad

@@ -212,6 +212,11 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [customerMailCompose,setCustomerMailCompose]=useState('')
   const [customerMailSending,setCustomerMailSending]=useState(false)
   const [customerMailStatus,setCustomerMailStatus]=useState('')
+  const [customerMailAiLoading,setCustomerMailAiLoading]=useState(false)
+  const [customerMailShowSchedule,setCustomerMailShowSchedule]=useState(false)
+  const [customerMailScheduleDate,setCustomerMailScheduleDate]=useState("")
+  const [customerMailScheduleTime,setCustomerMailScheduleTime]=useState("08:00")
+  const [customersWithNewMail,setCustomersWithNewMail]=useState<Set<string>>(new Set())
   const [showAI,setShowAI]=useState(false)
   const [editMode,setEditMode]=useState(false)
   const [comment,setComment]=useState('')
@@ -285,6 +290,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const btn=(bg:string,color='white'):React.CSSProperties=>({display:'inline-flex',alignItems:'center',gap:6,padding:'6px 14px',background:bg,color,border:bg==='transparent'?'1px solid #333':'none',borderRadius:6,fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:'inherit',minHeight:34,transition:'opacity 0.15s',letterSpacing:'-0.1px'})
 
   useEffect(()=>{loadCustomers();loadAllLogs();loadRecentActivity();loadContracts();loadJobs2025();loadInternalEvents()},[])
+  useEffect(()=>{if(customers.length>0)checkNewMails()},[customers.length])
   useEffect(()=>{
     const check=()=>{setIsMobile(window.innerWidth<768);if(window.innerWidth>=768)setSidebarOpen(false)}
     check();window.addEventListener('resize',check);return()=>window.removeEventListener('resize',check)
@@ -371,6 +377,20 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   async function loadLogs(cid:string){const snap=await getDocs(query(collection(db,'activity_logs'),where('customer_id','==',cid)));const l=snap.docs.map(d=>({id:d.id,...d.data()})) as any[];l.sort((a,b)=>new Date(b.timestamp).getTime()-new Date(a.timestamp).getTime());setLogs(l);return l}
   async function loadContracts(){try{const snap=await getDocs(query(collection(db,'maintenance_contracts'),orderBy('created_at','desc')));setUhContracts(snap.docs.map(d=>({id:d.id,...d.data()})))}catch{setUhContracts([])}}
   async function loadJobs2025(){try{const snap=await getDocs(query(collection(db,'customers_2025'),orderBy('created_at','desc')));setJobs2025(snap.docs.map(d=>({id:d.id,...d.data()})))}catch{setJobs2025([])}}
+
+  async function checkNewMails(){
+    try{
+      const r=await fetch('/api/mail?action=list&folder=inbox')
+      const d=await r.json()
+      const unread=(d.emails||[]).filter((e:any)=>e.unread===true)
+      const newSet=new Set<string>()
+      for(const email of unread){
+        const match=customers.find((c:any)=>c.email&&email.from?.toLowerCase().includes(c.email.toLowerCase()))
+        if(match)newSet.add(match.id)
+      }
+      setCustomersWithNewMail(newSet)
+    }catch{}
+  }
 
   /* ── Timer functions ── */
   function startTimer(cust:any,moment:string){
@@ -569,12 +589,16 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
     setCustomerMailThread([])
     setCustomerMailCompose('')
     setCustomerMailStatus('')
+    setCustomerMailShowSchedule(false)
+    setCustomerMailScheduleDate("")
+    setCustomersWithNewMail(prev=>{const s=new Set(prev);s.delete(c.id);return s})
     if(!c.email)return
     setCustomerMailLoading(true)
     try{
       const r=await fetch(`/api/mail?action=thread&email=${encodeURIComponent(c.email)}`)
       const d=await r.json()
-      setCustomerMailThread(d.emails||[])
+      const sorted=(d.emails||[]).slice().sort((a:any,b:any)=>new Date(b.date).getTime()-new Date(a.date).getTime())
+      setCustomerMailThread(sorted)
     }catch{}
     setCustomerMailLoading(false)
   }
@@ -583,12 +607,29 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
     if(!customerMailTarget?.email||!customerMailCompose.trim())return
     setCustomerMailSending(true)
     try{
-      const r=await fetch('/api/mail',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'send',to:customerMailTarget.email,subject:`HT Ytrengöring — ${customerMailTarget.name}`,body:customerMailCompose})})
+      const body:any={action:'send',to:customerMailTarget.email,subject:`HT Ytrengöring — ${customerMailTarget.name}`,body:customerMailCompose}
+      if(customerMailScheduleDate){body.scheduledAt=customerMailScheduleDate+'T'+customerMailScheduleTime+':00'}
+      const r=await fetch('/api/mail',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       const d=await r.json()
-      if(d.success){setCustomerMailStatus('✓ Skickat!');setCustomerMailCompose('');openCustomerMail(customerMailTarget)}
+      if(d.success){setCustomerMailStatus(customerMailScheduleDate?`✓ Schemalagd — ${new Date(customerMailScheduleDate+'T'+customerMailScheduleTime+':00').toLocaleString('sv-SE')}`:'✓ Skickat!');setCustomerMailCompose('');if(!customerMailScheduleDate)openCustomerMail(customerMailTarget)}
       else setCustomerMailStatus('Fel: '+(d.error||''))
     }catch(e:any){setCustomerMailStatus('Fel: '+e.message)}
     setCustomerMailSending(false)
+  }
+
+  const STYLE_GUIDE_AI = `Du är Ida Karlsson, kundansvarig på HT Ytrengöring AB. Du skriver mail på uppdrag av företaget.\n\nSIGNATUR (använd ALLTID exakt denna):\nVänligen,\n\nIda Karlsson | Kundfrågor | HT Ytrengöring AB\n\nMejltråden är öppen mellan 07-22 på vardagar\n\nBesöksadress: Storgatan 58, Linköping\n\nSKRIVSÄTT — följ dessa regler exakt:\n- Börja alltid med "Hej [namn]," (komma efter namnet, ny rad)\n- Tom rad efter hälsningen\n- Professionellt, varmt och personligt — som att prata med en vän men ändå seriöst\n- Avsluta med en trevlig hälsning t.ex. "Önskar dig en fin dag/kväll/vecka!" innan signaturen\n- Tom rad innan signaturen\n- Aldrig för kort — ge kunden ordentlig information\n- Erbjud alltid kostnadsfritt hembesök vid prisförfrågningar\n- Hembesök tar "max en kvart", är "helt kostnadsfria", innefattar "vid önskan en liten provtvätt"\n- Ge alltid 2 tidsalternativ för hembesök om relevant\n- Bekräfta bokningar med exakt tid och datum\n\nFÖRETAGET:\n- HT Ytrengöring AB — fasad- och ytrengöring i Östergötland\n- Tjänster: stentvätt (inkl. impregnering, biocid, fogsand), altantvätt, asfaltstvätt, betongtvatt\n- Mejltråden öppen 07-22 vardagar\n- Besöksadress: Storgatan 58, Linköping\n\nSVARA BARA med mailtexten — ingen förklaring, inga kommentarer.`
+
+  async function generateCustomerMailAi(){
+    if(!customerMailTarget)return
+    setCustomerMailAiLoading(true)
+    try{
+      const latestIncoming=customerMailThread.find((m:any)=>m.from?.toLowerCase().includes(customerMailTarget.email?.toLowerCase()))
+      const prompt=`${STYLE_GUIDE_AI}\n\nKund: ${customerMailTarget.name}\n\n${latestIncoming?`INKOMMANDE MAIL:\nFrån: ${latestIncoming.from}\nÄmne: ${latestIncoming.subject}\nDatum: ${latestIncoming.date}\nInnehåll:\n${latestIncoming.body}`:'(Inget inkommande mail — skriv ett generellt välkomstmail)'}\n\nSkriv ett professionellt svar. Svara BARA med mailtexten.`
+      const r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:prompt,customers:[]})})
+      const d=await r.json()
+      setCustomerMailCompose(d.reply||d.message||'')
+    }catch{}
+    setCustomerMailAiLoading(false)
   }
 
   async function openCustomer(c:any){setCurrent(c);setShowModal(true);setEditMode(false);setEditLogId(null);setEditLogForm({});setTimeForm({moment:'',hours:'',mins:'',date:TODAY});await loadLogs(c.id)}
@@ -965,7 +1006,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
           <div style={{background:C.surface,padding:isMobile?16:24,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
             <h2 style={{fontSize:isMobile?15:18,fontWeight:600,marginBottom:16,color:C.text}}>Aktiva ärenden</h2>
             <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>
-              {customers.filter(c=>{const s=getStatus(c);return s==='new'||s==='in_progress'}).map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)} onMail={openCustomerMail}/>)}
+              {customers.filter(c=>{const s=getStatus(c);return s==='new'||s==='in_progress'}).map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)} onMail={openCustomerMail} hasNewMail={customersWithNewMail.has(c.id)}/>)}
             </div>
           </div>
         </>}
@@ -1003,7 +1044,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
           {filtered.length===0
             ?<div style={{textAlign:'center',padding:'60px',color:C.textSec}}>Inga ärenden att visa</div>
             :custView==='card'
-              ?<div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>{filtered.map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)} onMail={openCustomerMail}/>)}</div>
+              ?<div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(340px,1fr))',gap:16}}>{filtered.map(c=><CustomerCard key={c.id} c={c} C={C} onClick={()=>openCustomer(c)} onMail={openCustomerMail} hasNewMail={customersWithNewMail.has(c.id)}/>)}</div>
               :<div style={{background:C.surface,borderRadius:12,boxShadow:'0 1px 3px rgba(0,0,0,0.1)',overflow:'hidden'}}>
                 <div style={{overflowX:'auto'}}>
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
@@ -2194,6 +2235,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
       {customerMailOpen&&customerMailTarget&&(
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={e=>{if(e.target===e.currentTarget)setCustomerMailOpen(false)}}>
           <div style={{width:'min(700px,95vw)',maxHeight:'90vh',background:C.surface,borderRadius:12,display:'flex',flexDirection:'column',overflow:'hidden',border:`1px solid ${C.border}`}}>
+            {/* HEADER */}
             <div style={{padding:'16px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
               <div>
                 <div style={{fontSize:16,fontWeight:700,color:C.text,display:'flex',alignItems:'center',gap:8}}><i className="fas fa-envelope" style={{color:C.primary}}/> {customerMailTarget.name}</div>
@@ -2201,29 +2243,31 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
               </div>
               <button onClick={()=>setCustomerMailOpen(false)} style={{width:32,height:32,background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,color:C.textSec,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
             </div>
-            <div style={{flex:1,overflowY:'auto',padding:16}}>
-              {customerMailLoading
-                ?<div style={{textAlign:'center',padding:24,color:C.textSec}}><i className="fas fa-spinner fa-spin"/> Laddar...</div>
-                :customerMailThread.length===0
-                  ?<div style={{textAlign:'center',padding:24,color:C.textSec,fontSize:13}}>Ingen mailhistorik med {customerMailTarget.name}</div>
-                  :customerMailThread.map((m:any)=>{
-                    const isIncoming=m.from===customerMailTarget.email||m.from?.includes(customerMailTarget.email)
-                    return(
-                      <div key={m.id} style={{marginBottom:12,padding:'12px 14px',background:isIncoming?`${C.primary}08`:'transparent',border:`1px solid ${C.border}`,borderLeft:`3px solid ${isIncoming?C.primary:'#10b981'}`,borderRadius:8}}>
-                        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-                          <span style={{fontSize:12,fontWeight:600,color:isIncoming?C.primary:'#10b981'}}>{isIncoming?'↙ Inkommande':'↗ Skickat'} — {m.subject}</span>
-                          <span style={{fontSize:11,color:C.textSec}}>{new Date(m.date).toLocaleString('sv-SE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
-                        </div>
-                        <pre style={{fontSize:12,color:C.text,lineHeight:1.6,whiteSpace:'pre-wrap',fontFamily:'inherit',margin:0,maxHeight:120,overflow:'hidden'}}>{m.body}</pre>
-                      </div>
-                    )
-                  })
-              }
-            </div>
-            <div style={{padding:16,borderTop:`1px solid ${C.border}`,flexShrink:0}}>
-              <textarea value={customerMailCompose} onChange={e=>setCustomerMailCompose(e.target.value)} rows={4}
-                placeholder={`Skriv mail till ${customerMailTarget.name}...`}
-                style={{width:'100%',padding:'10px 12px',borderRadius:8,border:`1px solid ${C.border}`,background:C.input,color:C.text,fontSize:13,fontFamily:'inherit',outline:'none',resize:'vertical' as const,boxSizing:'border-box' as const,lineHeight:1.6,marginBottom:10}}/>
+            {/* AI-SEKTION */}
+            <div style={{padding:16,background:C.primary+'08',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+              <div style={{marginBottom:8}}>
+                <button onClick={generateCustomerMailAi} disabled={customerMailAiLoading}
+                  style={{padding:'7px 16px',background:'#8b5cf6',color:'white',border:'none',borderRadius:8,fontWeight:600,fontSize:13,cursor:'pointer',fontFamily:'inherit',display:'inline-flex',alignItems:'center',gap:8,opacity:customerMailAiLoading?0.7:1}}>
+                  {customerMailAiLoading?<><i className="fas fa-spinner fa-spin"/> Genererar...</>:<><i className="fas fa-magic"/> Generera AI-svar</>}
+                </button>
+              </div>
+              <textarea value={customerMailCompose} onChange={e=>setCustomerMailCompose(e.target.value)} rows={6}
+                placeholder="Skriv eller generera svar..."
+                style={{width:'100%',padding:'10px 12px',borderRadius:8,border:`1px solid ${C.border}`,background:C.input,color:C.text,fontSize:13,fontFamily:'inherit',outline:'none',resize:'vertical' as const,boxSizing:'border-box' as const,lineHeight:1.6,marginBottom:8}}/>
+              <div style={{marginBottom:8}}>
+                <button onClick={()=>setCustomerMailShowSchedule(s=>!s)}
+                  style={{padding:'5px 12px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,color:C.textSec,fontSize:12,cursor:'pointer',fontFamily:'inherit',display:'inline-flex',alignItems:'center',gap:6}}>
+                  <i className="fas fa-clock"/> {customerMailShowSchedule?'Dölj schemaläggning':'Schemalägg'}
+                </button>
+              </div>
+              {customerMailShowSchedule&&(
+                <div style={{display:'flex',gap:8,marginBottom:8,alignItems:'center'}}>
+                  <input type="date" value={customerMailScheduleDate} onChange={e=>setCustomerMailScheduleDate(e.target.value)}
+                    style={{padding:'6px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:C.input,color:C.text,fontSize:13,fontFamily:'inherit',outline:'none'}}/>
+                  <input type="time" value={customerMailScheduleTime} onChange={e=>setCustomerMailScheduleTime(e.target.value)}
+                    style={{padding:'6px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:C.input,color:C.text,fontSize:13,fontFamily:'inherit',outline:'none'}}/>
+                </div>
+              )}
               <div style={{display:'flex',gap:10,alignItems:'center'}}>
                 <button onClick={sendCustomerMail} disabled={customerMailSending||!customerMailCompose.trim()}
                   style={{padding:'8px 20px',background:C.primary,color:'white',border:'none',borderRadius:8,fontWeight:600,fontSize:13,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',gap:8,opacity:customerMailSending?0.7:1}}>
@@ -2231,6 +2275,27 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
                 </button>
                 {customerMailStatus&&<span style={{fontSize:13,fontWeight:600,color:customerMailStatus.startsWith('✓')?'#10b981':'#ef4444'}}>{customerMailStatus}</span>}
               </div>
+            </div>
+            {/* TRÅD */}
+            <div style={{flex:1,overflowY:'auto',padding:0}}>
+              <div style={{padding:'12px 16px 8px',fontSize:12,fontWeight:600,color:C.textSec,textTransform:'uppercase' as const,letterSpacing:'0.05em'}}>Konversation</div>
+              {customerMailLoading
+                ?<div style={{textAlign:'center',padding:24,color:C.textSec}}><i className="fas fa-spinner fa-spin"/> Laddar...</div>
+                :customerMailThread.length===0
+                  ?<div style={{textAlign:'center',padding:24,color:C.textSec,fontSize:13}}>Ingen mailhistorik med {customerMailTarget.name}</div>
+                  :customerMailThread.map((m:any)=>{
+                    const isIncoming=m.from?.toLowerCase().includes(customerMailTarget.email?.toLowerCase())
+                    return(
+                      <div key={m.id} style={{margin:'0 16px 12px',padding:'12px 14px',background:isIncoming?`${C.primary}08`:'transparent',border:`1px solid ${C.border}`,borderLeft:`3px solid ${isIncoming?C.primary:'#10b981'}`,borderRadius:8}}>
+                        <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+                          <span style={{fontSize:12,fontWeight:600,color:isIncoming?C.primary:'#10b981'}}>{isIncoming?'↙ Inkommande':'↗ Skickat'} — {m.subject}</span>
+                          <span style={{fontSize:11,color:C.textSec}}>{new Date(m.date).toLocaleString('sv-SE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
+                        </div>
+                        <pre style={{fontSize:12,color:C.text,lineHeight:1.6,whiteSpace:'pre-wrap',fontFamily:'inherit',margin:0,maxHeight:140,overflowY:'auto'}}>{m.body}</pre>
+                      </div>
+                    )
+                  })
+              }
             </div>
           </div>
         </div>
@@ -2241,7 +2306,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
 }
 
 /* ─── CUSTOMER CARD ──────────────────────────────────────────── */
-function CustomerCard({c,C,onClick,onMail}:{c:any,C:any,onClick:()=>void,onMail?:(c:any)=>void}){
+function CustomerCard({c,C,onClick,onMail,hasNewMail}:{c:any,C:any,onClick:()=>void,onMail?:(c:any)=>void,hasNewMail?:boolean}){
   const status=getStatus(c),prog=Math.round(calcProgress(c))
   const svcs=getServices(c),kvm=getKvm(c)
   const svcStr=svcs.map((s:string)=>`${svcLabel(s)} (${kvm[s]||0}kvm)`).join(', ')
@@ -2281,8 +2346,8 @@ function CustomerCard({c,C,onClick,onMail}:{c:any,C:any,onClick:()=>void,onMail?
       <div style={{paddingTop:12,borderTop:`1px solid ${C.border}`}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
           <div style={{fontSize:12,color:C.textSec}}>Framsteg: {prog}%</div>
-          {onMail&&c.email&&<button onClick={e=>{e.stopPropagation();onMail(c)}} style={{padding:'3px 10px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,color:C.textSec,fontSize:11,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',gap:4}}>
-            <i className="fas fa-envelope" style={{color:C.primary}}/> Mail
+          {onMail&&c.email&&<button onClick={e=>{e.stopPropagation();onMail(c)}} style={{padding:'3px 10px',background:'transparent',border:`1px solid ${hasNewMail?'#ef4444':C.border}`,borderRadius:6,color:hasNewMail?'#ef4444':C.textSec,fontSize:11,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',gap:4}}>
+            <i className="fas fa-envelope" style={{color:hasNewMail?'#ef4444':C.primary}}/> Mail{hasNewMail&&<span style={{fontSize:10,padding:'1px 6px',background:'#ef4444',color:'white',borderRadius:9999,fontWeight:700,marginLeft:4}}>NYTT</span>}
           </button>}
         </div>
         <div style={{height:6,background:C.bg,borderRadius:9999,overflow:'hidden'}}>
