@@ -17,7 +17,8 @@ const SERVICE_STEPS: Record<string,{id:number,label:string}[]> = {
     {id:5,label:'Stentvätt'},
     {id:6,label:'Impregnering'},
     {id:7,label:'Fogsand'},
-    {id:8,label:'Fakturerad'},
+    {id:8,label:'Fakturering'},
+    {id:9,label:'Fakturerad'},
   ],
   stentvatt_no_fogsand: [
     {id:0,label:'Ej påbörjad'},
@@ -27,7 +28,8 @@ const SERVICE_STEPS: Record<string,{id:number,label:string}[]> = {
     {id:4,label:'Bokat'},
     {id:5,label:'Stentvätt'},
     {id:6,label:'Impregnering'},
-    {id:7,label:'Fakturerad'},
+    {id:7,label:'Fakturering'},
+    {id:8,label:'Fakturerad'},
   ],
   betongtvatt: [
     {id:0,label:'Ej påbörjad'},
@@ -36,7 +38,8 @@ const SERVICE_STEPS: Record<string,{id:number,label:string}[]> = {
     {id:3,label:'Offert'},
     {id:4,label:'Bokat'},
     {id:5,label:'Betongtvätt'},
-    {id:6,label:'Fakturerad'},
+    {id:6,label:'Fakturering'},
+    {id:7,label:'Fakturerad'},
   ],
   altantvatt: [
     {id:0,label:'Ej påbörjad'},
@@ -46,7 +49,8 @@ const SERVICE_STEPS: Record<string,{id:number,label:string}[]> = {
     {id:4,label:'Bokat'},
     {id:5,label:'Altantvätt'},
     {id:6,label:'Efterbehandling'},
-    {id:7,label:'Fakturerad'},
+    {id:7,label:'Fakturering'},
+    {id:8,label:'Fakturerad'},
   ],
   asfaltstvatt: [
     {id:0,label:'Ej påbörjad'},
@@ -55,7 +59,8 @@ const SERVICE_STEPS: Record<string,{id:number,label:string}[]> = {
     {id:3,label:'Offert'},
     {id:4,label:'Bokat'},
     {id:5,label:'Asfaltstvätt'},
-    {id:6,label:'Fakturerad'},
+    {id:6,label:'Fakturering'},
+    {id:7,label:'Fakturerad'},
   ],
 }
 

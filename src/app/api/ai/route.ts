@@ -367,11 +367,11 @@ async function executeFunction(name: string, args: Record<string, unknown>): Pro
         const service_kvm: Record<string, unknown> = d.service_kvm ?? {}
         // Build human-readable step labels per service
         const SERVICE_STEPS_MAP: Record<string, string[]> = {
-          stentvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Stentvätt','Impregnering','Fogsand','Fakturerad'],
-          altantvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Altantvätt','Efterbehandling','Fakturerad'],
-          asfaltstvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Asfaltstvätt','Fakturerad'],
-          fasadtvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Fasadtvätt','Impregnering','Fakturerad'],
-          taktvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Taktvätt','Behandling','Fakturerad'],
+          stentvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Stentvätt','Impregnering','Fogsand','Fakturering','Fakturerad'],
+          altantvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Altantvätt','Efterbehandling','Fakturering','Fakturerad'],
+          asfaltstvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Asfaltstvätt','Fakturering','Fakturerad'],
+          fasadtvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Fasadtvätt','Impregnering','Fakturering','Fakturerad'],
+          taktvatt: ['Ej påbörjad','Inbokat hembesök','Hembesök','Offert','Bokat','Taktvätt','Behandling','Fakturering','Fakturerad'],
         }
         const stepInfo: Record<string, { step_index: number; step_label: string; total_steps: number; kvm: unknown }> = {}
         for (const svc of services) {
@@ -477,10 +477,10 @@ REGLER:
 18. Du kan göra ALLT som rör kundhantering — använd alltid rätt verktyg direkt
 
 TJÄNSTESTEG (visa dessa när du förklarar status):
-• stentvatt (med fogsand): Ej påbörjad → Inbokat hembesök → Hembesök → Offert → Bokat → Stentvätt → Impregnering → Fogsand → Fakturerad
-• stentvatt (utan fogsand): Ej påbörjad → Inbokat hembesök → Hembesök → Offert → Bokat → Stentvätt → Impregnering → Fakturerad
-• altantvatt: Ej påbörjad → Inbokat hembesök → Hembesök → Offert → Bokat → Altantvätt → Efterbehandling → Fakturerad
-• asfaltstvatt: Ej påbörjad → Inbokat hembesök → Hembesök → Offert → Bokat → Asfaltstvätt → Fakturerad
+• stentvatt (med fogsand): Ej påbörjad → Inbokat hembesök → Hembesök → Offert → Bokat → Stentvätt → Impregnering → Fogsand → Fakturering → Fakturerad
+• stentvatt (utan fogsand): Ej påbörjad → Inbokat hembesök → Hembesök → Offert → Bokat → Stentvätt → Impregnering → Fakturering → Fakturerad
+• altantvatt: Ej påbörjad → Inbokat hembesök → Hembesök → Offert → Bokat → Altantvätt → Efterbehandling → Fakturering → Fakturerad
+• asfaltstvatt: Ej påbörjad → Inbokat hembesök → Hembesök → Offert → Bokat → Asfaltstvätt → Fakturering → Fakturerad
 ${memory}`
 
     // Build messages for Claude: start with history then current user message
