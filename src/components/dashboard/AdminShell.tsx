@@ -1324,18 +1324,21 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
             </div>
             {newForm.services.includes('stentvatt')&&(
               <div style={{marginBottom:20}}>
-                <label style={{display:'block',fontSize:14,fontWeight:500,marginBottom:8,color:C.text}}>Fogsand (Stentvätt)</label>
-                {[['','Ingen fogsand'],['ograshammande_fogsand','Ogräshämmande fogsand'],['flexibel_fogsand','Flexibel fogsand'],['stenmjol','Stenmjöl']].map(([val,lbl])=>(
+                <label style={{display:'block',fontSize:14,fontWeight:500,marginBottom:8,color:C.text}}>Sand / Fogsand (Stentvätt)</label>
+                {[['ograshammande_fogsand','Ogräshämmande fogsand'],['flexibel_fogsand','Flexibel fogsand'],['stenmjol','Stenmjöl']].map(([val,lbl])=>{
+                  const sel=(newForm.service_addons.stentvatt??[]).includes(val)
+                  return(
                   <div key={val} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',cursor:'pointer'}} onClick={()=>{
-                    const chosen=val===''?[]:([val] as string[])
-                    setNewForm({...newForm,service_addons:{...newForm.service_addons,stentvatt:chosen}})
+                    const cur=newForm.service_addons.stentvatt??[]
+                    const next=sel?cur.filter(x=>x!==val):[...cur,val]
+                    setNewForm({...newForm,service_addons:{...newForm.service_addons,stentvatt:next}})
                   }}>
-                    <div style={{width:16,height:16,borderRadius:'50%',border:`2px solid ${(newForm.service_addons.stentvatt??[])[0]===(val||undefined)&&(val===''?(newForm.service_addons.stentvatt??[]).length===0:true)?C.primary:C.border}`,background:(val===''?(newForm.service_addons.stentvatt??[]).length===0:(newForm.service_addons.stentvatt??[]).includes(val))?C.primary:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.15s'}}>
-                      {(val===''?(newForm.service_addons.stentvatt??[]).length===0:(newForm.service_addons.stentvatt??[]).includes(val))&&<div style={{width:6,height:6,borderRadius:'50%',background:'white'}}/>}
+                    <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?C.primary:C.border}`,background:sel?C.primary:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.15s'}}>
+                      {sel&&<span style={{color:'white',fontSize:11,fontWeight:700,lineHeight:1}}>✓</span>}
                     </div>
                     <span style={{fontSize:14,color:C.text}}>{lbl}</span>
                   </div>
-                ))}
+                )})}
               </div>
             )}
             {newForm.services.includes('altantvatt')&&(
@@ -2398,18 +2401,21 @@ function EditForm({current,C,inp,btn,onSave,onCancel}:any){
       )}
       {hasStentvatt&&(
         <div style={{marginBottom:14}}>
-          <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:8,color:C.text}}>Fogsand (Stentvätt)</label>
-          {[['','Ingen fogsand'],['ograshammande_fogsand','Ogräshämmande fogsand'],['flexibel_fogsand','Flexibel fogsand'],['stenmjol','Stenmjöl']].map(([val,lbl])=>(
+          <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:8,color:C.text}}>Sand / Fogsand (Stentvätt)</label>
+          {[['ograshammande_fogsand','Ogräshämmande fogsand'],['flexibel_fogsand','Flexibel fogsand'],['stenmjol','Stenmjöl']].map(([val,lbl])=>{
+            const sel=(form.service_addons.stentvatt??[]).includes(val)
+            return(
             <div key={val} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',cursor:'pointer'}} onClick={()=>{
-              const chosen=val===''?[]:([val] as string[])
-              setForm({...form,service_addons:{...form.service_addons,stentvatt:chosen},include_fogsand:chosen.length>0})
+              const cur=form.service_addons.stentvatt??[]
+              const next=sel?cur.filter(x=>x!==val):[...cur,val]
+              setForm({...form,service_addons:{...form.service_addons,stentvatt:next},include_fogsand:next.length>0})
             }}>
-              <div style={{width:15,height:15,borderRadius:'50%',border:`2px solid ${(val===''?(form.service_addons.stentvatt??[]).length===0:(form.service_addons.stentvatt??[]).includes(val))?C.primary:C.border}`,background:(val===''?(form.service_addons.stentvatt??[]).length===0:(form.service_addons.stentvatt??[]).includes(val))?C.primary:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.15s'}}>
-                {(val===''?(form.service_addons.stentvatt??[]).length===0:(form.service_addons.stentvatt??[]).includes(val))&&<div style={{width:5,height:5,borderRadius:'50%',background:'white'}}/>}
+              <div style={{width:15,height:15,borderRadius:4,border:`2px solid ${sel?C.primary:C.border}`,background:sel?C.primary:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.15s'}}>
+                {sel&&<span style={{color:'white',fontSize:10,fontWeight:700,lineHeight:1}}>✓</span>}
               </div>
               <span style={{fontSize:13,color:C.text}}>{lbl}</span>
             </div>
-          ))}
+          )})}
         </div>
       )}
       {hasAltantvatt&&(
