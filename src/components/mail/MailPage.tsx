@@ -403,6 +403,46 @@ export default function MailPage({ customers, C, isMobile }: any) {
     }
   }
 
+  // ── ThreadView helper component ─────────────────────────────
+  function ThreadView({ emails, selected, C }: { emails: any[]; selected: any; C: any }) {
+    const [open, setOpen] = useState(false)
+    if (!emails.length) return null
+    return (
+      <div style={{ padding: '0 22px 20px' }}>
+        <button onClick={() => setOpen(!open)}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 8, color: C.textSec, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', marginBottom: open ? 12 : 0, fontWeight: 600, width: '100%', justifyContent: 'space-between' }}>
+          <span><i className="fas fa-history" style={{ marginRight: 6 }} /> Tidigare i tråden ({emails.length} mail)</span>
+          <i className={`fas fa-chevron-${open ? 'up' : 'down'}`} style={{ fontSize: 11 }} />
+        </button>
+        {open && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {[...emails].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((email: any) => (
+              <div key={email.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: C.bg, borderBottom: `1px solid ${C.border}` }}>
+                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: `${C.primary}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.primary }}>{(email.fromName || email.from || '?')[0].toUpperCase()}</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{email.fromName || email.from}</div>
+                    <div style={{ fontSize: 11, color: C.textSec, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.subject}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textSec, flexShrink: 0 }}>
+                    {new Date(email.date).toLocaleString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+                {/* Body */}
+                <div style={{ padding: '12px 14px', background: C.surface }}>
+                  <pre style={{ fontSize: 12, color: C.text, lineHeight: 1.7, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0, maxHeight: 200, overflow: 'hidden' }}>{email.body}</pre>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   if (!connected) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 400, gap: 20, padding: 40 }}>
@@ -697,9 +737,23 @@ export default function MailPage({ customers, C, isMobile }: any) {
 
               {/* ── SENASTE MAILET (under AI-svar) ── */}
               <div style={{ padding: '18px 22px', borderBottom: `1px solid ${C.border}` }}>
+                {/* Mail-header Outlook-stil */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: C.bg, border: `1px solid ${C.border}`, borderRadius: '8px 8px 0 0', marginBottom: 0 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: `${C.primary}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: C.primary }}>{(selected.fromName || selected.from || '?')[0].toUpperCase()}</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{selected.fromName || selected.from}</div>
+                    <div style={{ fontSize: 11, color: C.textSec, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.from}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textSec, flexShrink: 0 }}>
+                    {new Date(selected.date).toLocaleString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+
                 {parsedForm ? (
-                  <div>
-                    <div style={{ marginBottom: 12, padding: '10px 14px', background: '#22c55e15', border: '1px solid #22c55e30', borderRadius: 8 }}>
+                  <div style={{ border: `1px solid ${C.border}`, borderTop: 'none', borderRadius: '0 0 8px 8px', overflow: 'hidden' }}>
+                    <div style={{ padding: '12px 14px', background: '#22c55e08', borderBottom: '1px solid #22c55e25' }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: '#22c55e', marginBottom: 8 }}><i className="fas fa-wpforms" /> Formulärmail — kontaktuppgifter</div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
                         {Object.entries(parsedForm).map(([k,v]:any) => (
@@ -720,13 +774,17 @@ export default function MailPage({ customers, C, isMobile }: any) {
                         </div>
                       )}
                     </div>
-                    <pre style={{ fontSize: 13, color: C.textSec, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
+                    <div style={{ padding: '14px 16px', background: C.surface }}>
+                      <pre style={{ fontSize: 13, color: C.textSec, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
+                    </div>
                   </div>
                 ) : (
-                  <div>
-                    <pre style={{ fontSize: 13, color: C.text, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
+                  <div style={{ border: `1px solid ${C.border}`, borderTop: 'none', borderRadius: '0 0 8px 8px', background: C.surface }}>
+                    <div style={{ padding: '14px 16px' }}>
+                      <pre style={{ fontSize: 13, color: C.text, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
+                    </div>
                     {!linkedCustomer && (
-                      <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' as const }}>
+                      <div style={{ padding: '10px 16px', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' as const }}>
                         <button onClick={aiCreateCustomer} disabled={aiCreateLoading}
                           style={{ padding: '6px 14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: aiCreateLoading ? 0.7 : 1 }}>
                           {aiCreateLoading ? <><i className="fas fa-spinner fa-spin" /> Analyserar...</> : <><i className="fas fa-magic" /> AI skapar kund</>}

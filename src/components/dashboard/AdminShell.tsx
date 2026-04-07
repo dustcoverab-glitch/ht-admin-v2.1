@@ -215,7 +215,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
   const [showAI,setShowAI]=useState(false)
   const [editMode,setEditMode]=useState(false)
   const [comment,setComment]=useState('')
-  const [newForm,setNewForm]=useState({name:'',phone:'',email:'',address:'',services:[] as string[],kvm:{} as Record<string,string>,fogsand:false,note:'',price:''})
+  const [newForm,setNewForm]=useState({name:'',phone:'',email:'',address:'',services:[] as string[],kvm:{} as Record<string,string>,service_addons:{} as Record<string,string[]>,note:'',price:''})
   const [timeForm,setTimeForm]=useState({moment:'',hours:'',mins:'',date:TODAY})
   const [uhContracts,setUhContracts]=useState<any[]>([])
   const [uhModal,setUhModal]=useState(false)
@@ -600,8 +600,9 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
     if(!newForm.name||!newForm.phone||!newForm.address||!svcs.length)return alert('Fyll i alla obligatoriska fält')
     const prog:Record<string,number>={};const kv:Record<string,string>={}
     svcs.forEach(s=>{prog[s]=0;kv[s]=newForm.kvm[s]||'0'})
-    await addDoc(collection(db,'customers'),{name:newForm.name,phone:newForm.phone,email:newForm.email,address:newForm.address,services:svcs,service_kvm:kv,service_progress:prog,skipped_steps:{},include_fogsand:newForm.fogsand,note:newForm.note,price_excl_vat:parseFloat(newForm.price)||0,status:'new',rejected:false,created_at:new Date().toISOString()})
-    setNewForm({name:'',phone:'',email:'',address:'',services:[],kvm:{},fogsand:false,note:'',price:''})
+    const include_fogsand=(newForm.service_addons.stentvatt?.length??0)>0
+    await addDoc(collection(db,'customers'),{name:newForm.name,phone:newForm.phone,email:newForm.email,address:newForm.address,services:svcs,service_kvm:kv,service_progress:prog,skipped_steps:{},include_fogsand,service_addons:newForm.service_addons,note:newForm.note,price_excl_vat:parseFloat(newForm.price)||0,status:'new',rejected:false,created_at:new Date().toISOString()})
+    setNewForm({name:'',phone:'',email:'',address:'',services:[],kvm:{},service_addons:{},note:'',price:''})
     await loadCustomers();setPage('customers')
   }
   async function logTime(){
@@ -1282,12 +1283,38 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
             </div>
             {newForm.services.includes('stentvatt')&&(
               <div style={{marginBottom:20}}>
-                <div style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}} onClick={()=>setNewForm({...newForm,fogsand:!newForm.fogsand})}>
-                  <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${newForm.fogsand?C.primary:C.border}`,background:newForm.fogsand?C.primary:'transparent',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.15s'}}>
-                    {newForm.fogsand&&<span style={{color:'white',fontSize:11,fontWeight:700,lineHeight:1}}>✓</span>}
+                <label style={{display:'block',fontSize:14,fontWeight:500,marginBottom:8,color:C.text}}>Fogsand (Stentvätt)</label>
+                {[['','Ingen fogsand'],['ograshammande_fogsand','Ogräshämmande fogsand'],['flexibel_fogsand','Flexibel fogsand']].map(([val,lbl])=>(
+                  <div key={val} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',cursor:'pointer'}} onClick={()=>{
+                    const chosen=val===''?[]:([val] as string[])
+                    setNewForm({...newForm,service_addons:{...newForm.service_addons,stentvatt:chosen}})
+                  }}>
+                    <div style={{width:16,height:16,borderRadius:'50%',border:`2px solid ${(newForm.service_addons.stentvatt??[])[0]===(val||undefined)&&(val===''?(newForm.service_addons.stentvatt??[]).length===0:true)?C.primary:C.border}`,background:(val===''?(newForm.service_addons.stentvatt??[]).length===0:(newForm.service_addons.stentvatt??[]).includes(val))?C.primary:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.15s'}}>
+                      {(val===''?(newForm.service_addons.stentvatt??[]).length===0:(newForm.service_addons.stentvatt??[]).includes(val))&&<div style={{width:6,height:6,borderRadius:'50%',background:'white'}}/>}
+                    </div>
+                    <span style={{fontSize:14,color:C.text}}>{lbl}</span>
                   </div>
-                  <span style={{fontSize:14,color:C.text}}>Inkludera fogsand</span>
-                </div>
+                ))}
+              </div>
+            )}
+            {newForm.services.includes('altantvatt')&&(
+              <div style={{marginBottom:20}}>
+                <label style={{display:'block',fontSize:14,fontWeight:500,marginBottom:8,color:C.text}}>Tillval (Altantvätt)</label>
+                {[['saapa','Såpa'],['kiselimpregnering','Kiselimpregnering'],['impregnering','Impregnering'],['olja','Olja']].map(([val,lbl])=>{
+                  const selected=(newForm.service_addons.altantvatt??[]).includes(val)
+                  return(
+                    <div key={val} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',cursor:'pointer'}} onClick={()=>{
+                      const cur=newForm.service_addons.altantvatt??[]
+                      const next=selected?cur.filter(x=>x!==val):[...cur,val]
+                      setNewForm({...newForm,service_addons:{...newForm.service_addons,altantvatt:next}})
+                    }}>
+                      <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${selected?C.primary:C.border}`,background:selected?C.primary:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.15s'}}>
+                        {selected&&<span style={{color:'white',fontSize:10,fontWeight:700,lineHeight:1}}>✓</span>}
+                      </div>
+                      <span style={{fontSize:14,color:C.text}}>{lbl}</span>
+                    </div>
+                  )
+                })}
               </div>
             )}
             <div style={{marginBottom:20}}>
@@ -2221,6 +2248,9 @@ function CustomerCard({c,C,onClick,onMail}:{c:any,C:any,onClick:()=>void,onMail?
   const price=parseFloat(c.price_excl_vat)||0
   const statusColors:Record<string,string>={new:'#22c55e',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
   const topColor=statusColors[status]||'#888'
+  const addonLabels:Record<string,string>={ograshammande_fogsand:'Ogräshämmande fogsand',flexibel_fogsand:'Flexibel fogsand',saapa:'Såpa',kiselimpregnering:'Kiselimpregnering',impregnering:'Impregnering',olja:'Olja'}
+  const serviceAddons:Record<string,string[]>=typeof c.service_addons==='object'&&c.service_addons?c.service_addons:{}
+  const allAddonBadges:string[]=Object.values(serviceAddons).flat()
   return(
     <div onClick={onClick} style={{background:C.surface,padding:18,borderRadius:12,border:`1px solid ${C.border}`,borderTop:`3px solid ${topColor}`,cursor:'pointer',transition:'border-color 0.15s,box-shadow 0.15s'}}
       onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.primary;(e.currentTarget as HTMLElement).style.boxShadow=`0 0 0 1px ${C.primary}22`}}
@@ -2229,6 +2259,13 @@ function CustomerCard({c,C,onClick,onMail}:{c:any,C:any,onClick:()=>void,onMail?
         <div>
           <div style={{fontSize:16,fontWeight:600,color:C.text,marginBottom:4}}>{c.name}</div>
           <div style={{fontSize:13,color:C.textSec}}>{svcStr}</div>
+          {allAddonBadges.length>0&&(
+            <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>
+              {allAddonBadges.map(a=>(
+                <span key={a} style={{fontSize:10,padding:'2px 7px',background:'rgba(139,92,246,0.12)',border:'1px solid rgba(139,92,246,0.25)',borderRadius:9999,color:'#8b5cf6',fontWeight:600}}>{addonLabels[a]||a}</span>
+              ))}
+            </div>
+          )}
         </div>
         <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}}>
           <StatusBadge status={status}/>
@@ -2260,6 +2297,8 @@ function CustomerCard({c,C,onClick,onMail}:{c:any,C:any,onClick:()=>void,onMail?
 function EditForm({current,C,inp,btn,onSave,onCancel}:any){
   const services=getServices(current)
   const hasStentvatt=services.includes('stentvatt')
+  const hasAltantvatt=services.includes('altantvatt')
+  const existingAddons:Record<string,string[]>=typeof current.service_addons==='object'&&current.service_addons?current.service_addons:{}
   const [form,setForm]=useState({
     name:current.name,
     phone:current.phone,
@@ -2269,6 +2308,7 @@ function EditForm({current,C,inp,btn,onSave,onCancel}:any){
     price:current.price_excl_vat||'',
     service_kvm:getKvm(current) as Record<string,string>,
     include_fogsand:current.include_fogsand||false,
+    service_addons:existingAddons as Record<string,string[]>,
   })
   return(
     <div style={{marginBottom:24}}>
@@ -2293,21 +2333,38 @@ function EditForm({current,C,inp,btn,onSave,onCancel}:any){
       )}
       {hasStentvatt&&(
         <div style={{marginBottom:14}}>
-          <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:8,color:C.text}}>Fogsand</label>
-          <button
-            type="button"
-            onClick={()=>setForm({...form,include_fogsand:!form.include_fogsand})}
-            style={{
-              display:'inline-flex',alignItems:'center',gap:8,padding:'8px 16px',
-              border:`2px solid ${form.include_fogsand?'#10b981':'#e2e8f0'}`,
-              borderRadius:8,background:form.include_fogsand?'#f0fdf4':'transparent',
-              color:form.include_fogsand?'#10b981':C.textSec,
-              cursor:'pointer',fontFamily:'inherit',fontSize:13,fontWeight:600,transition:'all 0.2s',
-            }}
-          >
-            <i className={form.include_fogsand?'fas fa-check-square':'fas fa-square'} style={{fontSize:16}}/>
-            {form.include_fogsand?'Fogsand inkluderad':'Inkludera fogsand'}
-          </button>
+          <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:8,color:C.text}}>Fogsand (Stentvätt)</label>
+          {[['','Ingen fogsand'],['ograshammande_fogsand','Ogräshämmande fogsand'],['flexibel_fogsand','Flexibel fogsand']].map(([val,lbl])=>(
+            <div key={val} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',cursor:'pointer'}} onClick={()=>{
+              const chosen=val===''?[]:([val] as string[])
+              setForm({...form,service_addons:{...form.service_addons,stentvatt:chosen},include_fogsand:chosen.length>0})
+            }}>
+              <div style={{width:15,height:15,borderRadius:'50%',border:`2px solid ${(val===''?(form.service_addons.stentvatt??[]).length===0:(form.service_addons.stentvatt??[]).includes(val))?C.primary:C.border}`,background:(val===''?(form.service_addons.stentvatt??[]).length===0:(form.service_addons.stentvatt??[]).includes(val))?C.primary:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.15s'}}>
+                {(val===''?(form.service_addons.stentvatt??[]).length===0:(form.service_addons.stentvatt??[]).includes(val))&&<div style={{width:5,height:5,borderRadius:'50%',background:'white'}}/>}
+              </div>
+              <span style={{fontSize:13,color:C.text}}>{lbl}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {hasAltantvatt&&(
+        <div style={{marginBottom:14}}>
+          <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:8,color:C.text}}>Tillval (Altantvätt)</label>
+          {[['saapa','Såpa'],['kiselimpregnering','Kiselimpregnering'],['impregnering','Impregnering'],['olja','Olja']].map(([val,lbl])=>{
+            const selected=(form.service_addons.altantvatt??[]).includes(val)
+            return(
+              <div key={val} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',cursor:'pointer'}} onClick={()=>{
+                const cur=form.service_addons.altantvatt??[]
+                const next=selected?cur.filter(x=>x!==val):[...cur,val]
+                setForm({...form,service_addons:{...form.service_addons,altantvatt:next}})
+              }}>
+                <div style={{width:15,height:15,borderRadius:3,border:`2px solid ${selected?C.primary:C.border}`,background:selected?C.primary:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.15s'}}>
+                  {selected&&<span style={{color:'white',fontSize:9,fontWeight:700,lineHeight:1}}>✓</span>}
+                </div>
+                <span style={{fontSize:13,color:C.text}}>{lbl}</span>
+              </div>
+            )
+          })}
         </div>
       )}
       <div style={{marginBottom:14}}>
@@ -2323,7 +2380,8 @@ function EditForm({current,C,inp,btn,onSave,onCancel}:any){
         <button onClick={()=>onSave({
           name:form.name,phone:form.phone,email:form.email,address:form.address,
           note:form.note,price_excl_vat:parseFloat(String(form.price))||0,
-          service_kvm:form.service_kvm,include_fogsand:form.include_fogsand,
+          service_kvm:form.service_kvm,include_fogsand:(form.service_addons.stentvatt??[]).length>0,
+          service_addons:form.service_addons,
         })} style={btn(C.primary)}>Spara</button>
       </div>
     </div>

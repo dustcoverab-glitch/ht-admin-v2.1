@@ -88,6 +88,7 @@ const tools: Anthropic.Tool[] = [
         address: { type: 'string' }, note: { type: 'string' }, price: { type: 'number' },
         services: { type: 'array', items: { type: 'string' }, description: 'stentvatt|altantvatt|asfaltstvatt|fasadtvatt|taktvatt' },
         include_fogsand: { type: 'boolean' }, kvm: { type: 'number' }, service_kvm: { type: 'object' },
+        addons: { type: 'object', description: 'Tillval per tjänst, t.ex. {"stentvatt":["ograshammande_fogsand"],"altantvatt":["saapa","olja"]}' },
       },
       required: ['name', 'services'],
     },
@@ -110,6 +111,7 @@ const tools: Anthropic.Tool[] = [
         customer_id: { type: 'string', description: 'Personens namn eller Firestore-ID' },
         service: { type: 'string', description: 'stentvatt|altantvatt|asfaltstvatt|fasadtvatt|taktvatt' },
         kvm: { type: 'number' }, include_fogsand: { type: 'boolean' },
+        addons: { type: 'array', items: { type: 'string' }, description: 'Tillval för tjänsten, t.ex. ["ograshammande_fogsand","saapa","olja"]' },
       },
       required: ['customer_id', 'service', 'kvm'],
     },
@@ -226,10 +228,18 @@ async function executeFunction(name: string, args: Record<string, unknown>): Pro
         const rawKvm = (args.service_kvm as Record<string, number>) ?? {}
         const service_kvm: Record<string, number> = {}
         for (const s of services) service_kvm[s] = rawKvm[s] ?? kvm
+        const service_addons: Record<string, string[]> = {}
+        if (args.addons && typeof args.addons === 'object' && !Array.isArray(args.addons)) {
+          for (const [k, v] of Object.entries(args.addons as Record<string, string[]>)) {
+            service_addons[normKey(k)] = Array.isArray(v) ? v : []
+          }
+        }
+        const hasFogsand = Boolean(service_addons.stentvatt?.length)
         const docData = {
           name: String(args.name ?? ''), phone: String(args.phone ?? ''), email: String(args.email ?? ''),
           address: String(args.address ?? ''), note: String(args.note ?? ''), price_excl_vat: args.price ?? null,
-          services, include_fogsand: Boolean(args.include_fogsand ?? false), service_kvm,
+          services, include_fogsand: Boolean(args.include_fogsand ?? hasFogsand), service_kvm,
+          service_addons: Object.keys(service_addons).length > 0 ? service_addons : {},
           service_progress: buildProgress(services), skipped_steps: {}, status: 'new', rejected: false,
           created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
         }
@@ -246,15 +256,24 @@ async function executeFunction(name: string, args: Record<string, unknown>): Pro
         const svc = normKey(String(args.service ?? ''))
         const kvm = Number(args.kvm ?? 0)
         const include_fogsand = Boolean(args.include_fogsand ?? false)
+        const newAddons: string[] = Array.isArray(args.addons) ? (args.addons as string[]) : []
         const found = await findDoc(String(args.customer_id ?? ''), 'customers')
         if (!found) return { error: `Hittade ingen kund med "${args.customer_id}".` }
         const services: string[] = Array.isArray(found.data.services) ? [...found.data.services] : []
         if (services.includes(svc)) return { error: `Kunden har redan "${svc}".` }
         const sp: Record<string, number> = found.data.service_progress ?? {}
         const sk: Record<string, number> = found.data.service_kvm ?? {}
+        const existingAddons: Record<string, string[]> = found.data.service_addons ?? {}
         services.push(svc); sk[svc] = kvm; sp[svc] = 0
-        await found.ref.update({ services, service_kvm: sk, service_progress: sp, include_fogsand: svc === 'stentvatt' ? include_fogsand : (found.data.include_fogsand ?? false), updated_at: new Date().toISOString() })
-        return { success: true, added_service: svc }
+        if (newAddons.length > 0) existingAddons[svc] = newAddons
+        const hasFogsandAddon = (existingAddons.stentvatt ?? []).length > 0
+        await found.ref.update({
+          services, service_kvm: sk, service_progress: sp,
+          service_addons: existingAddons,
+          include_fogsand: svc === 'stentvatt' ? (include_fogsand || hasFogsandAddon) : (found.data.include_fogsand ?? false),
+          updated_at: new Date().toISOString()
+        })
+        return { success: true, added_service: svc, addons: newAddons }
       }
       case 'update_person': {
         const rawId = String(args.doc_id ?? '')
