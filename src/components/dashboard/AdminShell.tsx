@@ -2751,11 +2751,26 @@ function StatPage({customers,allLogs,C,isMobile}:any){
 
             {/* ── Detaljerad materiallista ── */}
             {(()=>{
+              // Normalisera materialnamn till standardkategorier
+              function normalizeMaterialName(raw: string): string {
+                const n = raw.toLowerCase().trim()
+                if(/kisel|silikat/.test(n)) return 'Kiselimpregnering'
+                if(/flexifog|flexibel fog|flex fog|flexibel fogsand/.test(n)) return 'Flexibel fogsand'
+                if(/ogräs|ogrash|ogräshämmande|ograshammande/.test(n)) return 'Ogräshämmande fogsand'
+                if(/fogsand|fog sand/.test(n)) return 'Fogsand'
+                if(/stenmjöl|stenmjol/.test(n)) return 'Stenmjöl'
+                if(/impregner/.test(n)) return 'Impregnering'
+                if(/biocid|mossmedel|algmedel|algbort/.test(n)) return 'Biocid/Algmedel'
+                if(/träsåpa|tra.?sapa|rengöringssåpa|såpa/.test(n)) return 'Träsåpa'
+                if(/träolja|tra.?olja|terrassolja/.test(n)) return 'Träolja'
+                if(/tvättmedel|rengöringsmedel/.test(n)) return 'Rengöringsmedel'
+                return raw.trim().slice(0, 35)
+              }
               // Aggregera alla material-poster över alla jobb
               const materialMap: Record<string, {totalCost: number, totalQty: number, unitPrice: number, count: number}> = {}
               jobsWithMaterial.forEach((c:any)=>{
                 ;(c.material_items||[]).forEach((i:any)=>{
-                  const name = String(i.name||'').trim()
+                  const name = normalizeMaterialName(String(i.name||'').trim())
                   if(!name) return
                   const qty = parseFloat(String(i.qty||0))
                   const unitPrice = parseFloat(String(i.unit_price||0))

@@ -431,7 +431,25 @@ export async function POST(req: NextRequest) {
           role: 'user',
           content: [
             { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } } as any,
-            { type: 'text', text: 'Analysera denna offert-PDF för ett ytrengöringsföretag. Extrahera: 1) ALLA materialposter, 2) Totalpris exkl moms. Returnera ENBART giltig JSON: {"material_items":[{"name":"Materialnamn","qty":1,"unit_price":100}],"total_price_excl_vat":12500}. För material: inkludera ENBART produkter/material, INTE arbete/tjänster. För priset: leta efter "totalt exkl moms", "nettopris", "pris exkl moms" eller liknande. Om inget pris hittas sätt total_price_excl_vat till 0.' }
+            { type: 'text', text: `Analysera denna offert-PDF för ett ytrengöringsföretag. Extrahera: 1) ALLA materialposter, 2) Totalpris exkl moms. Returnera ENBART giltig JSON: {"material_items":[{"name":"Materialnamn","qty":1,"unit_price":100}],"total_price_excl_vat":12500}.
+
+För material: inkludera ENBART produkter/material, INTE arbete/tjänster.
+För priset: leta efter "totalt exkl moms", "nettopris", "pris exkl moms" eller liknande. Om inget pris hittas sätt total_price_excl_vat till 0.
+
+VIKTIGT — Normalisera materialnamnen till dessa standardkategorier (använd EXAKT dessa namn):
+- Allt med "impregnering", "impregner", "fasadimpregnering", "markimpregnering" (men EJ kisel) → "Impregnering"
+- Allt med "kisel", "kiselimpregnering", "silikat" → "Kiselimpregnering"
+- Allt med "flexifog", "flexibel fog", "flexibel fogsand", "flex fog" → "Flexibel fogsand"
+- Allt med "ogräs", "ogräshämmande", "ogräsfog", "ograshämmande fogsand" → "Ogräshämmande fogsand"
+- Allt med "fogsand", "fog sand" (som EJ är flexibel eller ogräshämmande) → "Fogsand"
+- Allt med "stenmjöl", "stenmjol" → "Stenmjöl"
+- Allt med "biocid", "mossmedel", "alg", "algmedel", "algborttagning" → "Biocid/Algmedel"
+- Allt med "såpa", "trä såpa", "träsåpa", "rengöringssåpa" → "Träsåpa"
+- Allt med "olja", "trä olja", "träolja", "terrassolja" → "Träolja"
+- Allt med "tvättmedel", "rengöringsmedel", "högtryck" (kemikalie) → "Rengöringsmedel"
+- Övriga material som inte passar ovan → behåll originalnamnet men förkorta till max 30 tecken
+
+Summera qty om samma kategori förekommer flera gånger på offerten.` }
           ]
         }],
       })
