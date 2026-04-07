@@ -2748,6 +2748,75 @@ function StatPage({customers,allLogs,C,isMobile}:any){
                 })}
               </div>
             </div>
+
+            {/* ── Detaljerad materiallista ── */}
+            {(()=>{
+              // Aggregera alla material-poster över alla jobb
+              const materialMap: Record<string, {totalCost: number, totalQty: number, unitPrice: number, count: number}> = {}
+              jobsWithMaterial.forEach((c:any)=>{
+                ;(c.material_items||[]).forEach((i:any)=>{
+                  const name = String(i.name||'').trim()
+                  if(!name) return
+                  const qty = parseFloat(String(i.qty||0))
+                  const unitPrice = parseFloat(String(i.unit_price||0))
+                  const cost = qty * unitPrice
+                  if(!materialMap[name]) materialMap[name] = {totalCost:0, totalQty:0, unitPrice, count:0}
+                  materialMap[name].totalCost += cost
+                  materialMap[name].totalQty += qty
+                  materialMap[name].count += 1
+                })
+              })
+              const sorted = Object.entries(materialMap).sort((a,b)=>b[1].totalCost-a[1].totalCost)
+              if(!sorted.length) return null
+              const grandTotal = sorted.reduce((s,[,v])=>s+v.totalCost, 0)
+              return(
+                <div style={{borderTop:`1px solid ${C.border}`}}>
+                  <div style={{padding:'10px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.text}}><i className="fas fa-list" style={{marginRight:6,color:'#f59e0b'}}/>Materialspecifikation</span>
+                    <span style={{fontSize:12,fontWeight:700,color:'#f59e0b'}}>{fmtCur(Math.round(grandTotal))} totalt</span>
+                  </div>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                    <thead>
+                      <tr style={{background:C.bg}}>
+                        {(['Material','Totalt antal','À-pris','Total kostnad','Andel'] as string[]).map((h,i,a)=>(
+                          <th key={h} style={{padding:'7px 16px',textAlign:'left',fontWeight:600,fontSize:11,color:C.textSec,letterSpacing:'0.04em',textTransform:'uppercase' as const,borderRight:i<a.length-1?`1px solid ${C.border}`:'none',whiteSpace:'nowrap'}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sorted.map(([name,v],rowIdx)=>{
+                        const pct = grandTotal>0 ? Math.round(v.totalCost/grandTotal*100) : 0
+                        return(
+                          <tr key={name} style={{borderTop:`1px solid ${C.border}`,background:rowIdx%2===0?C.surface:C.bg}}>
+                            <td style={{padding:'9px 16px',borderRight:`1px solid ${C.border}`,fontWeight:600,color:C.text}}>{name}</td>
+                            <td style={{padding:'9px 16px',borderRight:`1px solid ${C.border}`,color:C.textSec,textAlign:'center'}}>{v.totalQty % 1 === 0 ? v.totalQty : v.totalQty.toFixed(1)}</td>
+                            <td style={{padding:'9px 16px',borderRight:`1px solid ${C.border}`,color:C.textSec,whiteSpace:'nowrap'}}>{v.unitPrice>0?fmtCur(v.unitPrice):'—'}</td>
+                            <td style={{padding:'9px 16px',borderRight:`1px solid ${C.border}`,fontWeight:700,color:'#f59e0b',whiteSpace:'nowrap'}}>{fmtCur(Math.round(v.totalCost))}</td>
+                            <td style={{padding:'9px 16px'}}>
+                              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                                <div style={{flex:1,height:6,background:C.bg,borderRadius:9999,overflow:'hidden',border:`1px solid ${C.border}`}}>
+                                  <div style={{height:'100%',width:`${pct}%`,background:'#f59e0b',borderRadius:9999}}/>
+                                </div>
+                                <span style={{fontSize:11,color:C.textSec,minWidth:28,textAlign:'right'}}>{pct}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{borderTop:`2px solid ${C.border}`,background:C.bg}}>
+                        <td style={{padding:'9px 16px',fontWeight:700,color:C.text,borderRight:`1px solid ${C.border}`}}>Totalt</td>
+                        <td style={{padding:'9px 16px',borderRight:`1px solid ${C.border}`}}/>
+                        <td style={{padding:'9px 16px',borderRight:`1px solid ${C.border}`}}/>
+                        <td style={{padding:'9px 16px',fontWeight:800,color:'#f59e0b',whiteSpace:'nowrap',borderRight:`1px solid ${C.border}`}}>{fmtCur(Math.round(grandTotal))}</td>
+                        <td style={{padding:'9px 16px'}}/>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )
+            })()}
           </div>
         )
       })()}
