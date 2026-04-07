@@ -1325,7 +1325,7 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
             {newForm.services.includes('stentvatt')&&(
               <div style={{marginBottom:20}}>
                 <label style={{display:'block',fontSize:14,fontWeight:500,marginBottom:8,color:C.text}}>Fogsand (Stentvätt)</label>
-                {[['','Ingen fogsand'],['ograshammande_fogsand','Ogräshämmande fogsand'],['flexibel_fogsand','Flexibel fogsand']].map(([val,lbl])=>(
+                {[['','Ingen fogsand'],['ograshammande_fogsand','Ogräshämmande fogsand'],['flexibel_fogsand','Flexibel fogsand'],['stenmjol','Stenmjöl']].map(([val,lbl])=>(
                   <div key={val} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',cursor:'pointer'}} onClick={()=>{
                     const chosen=val===''?[]:([val] as string[])
                     setNewForm({...newForm,service_addons:{...newForm.service_addons,stentvatt:chosen}})
@@ -2313,7 +2313,7 @@ function CustomerCard({c,C,onClick,onMail,hasNewMail}:{c:any,C:any,onClick:()=>v
   const price=parseFloat(c.price_excl_vat)||0
   const statusColors:Record<string,string>={new:'#22c55e',in_progress:'#3b82f6',completed:'#10b981',rejected:'#ef4444'}
   const topColor=statusColors[status]||'#888'
-  const addonLabels:Record<string,string>={ograshammande_fogsand:'Ogräshämmande fogsand',flexibel_fogsand:'Flexibel fogsand',saapa:'Såpa',kiselimpregnering:'Kiselimpregnering',impregnering:'Impregnering',olja:'Olja'}
+  const addonLabels:Record<string,string>={ograshammande_fogsand:'Ogräshämmande fogsand',flexibel_fogsand:'Flexibel fogsand',stenmjol:'Stenmjöl',saapa:'Såpa',kiselimpregnering:'Kiselimpregnering',impregnering:'Impregnering',olja:'Olja'}
   const serviceAddons:Record<string,string[]>=typeof c.service_addons==='object'&&c.service_addons?c.service_addons:{}
   const allAddonBadges:string[]=Object.values(serviceAddons).flat()
   return(
@@ -2399,7 +2399,7 @@ function EditForm({current,C,inp,btn,onSave,onCancel}:any){
       {hasStentvatt&&(
         <div style={{marginBottom:14}}>
           <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:8,color:C.text}}>Fogsand (Stentvätt)</label>
-          {[['','Ingen fogsand'],['ograshammande_fogsand','Ogräshämmande fogsand'],['flexibel_fogsand','Flexibel fogsand']].map(([val,lbl])=>(
+          {[['','Ingen fogsand'],['ograshammande_fogsand','Ogräshämmande fogsand'],['flexibel_fogsand','Flexibel fogsand'],['stenmjol','Stenmjöl']].map(([val,lbl])=>(
             <div key={val} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',cursor:'pointer'}} onClick={()=>{
               const chosen=val===''?[]:([val] as string[])
               setForm({...form,service_addons:{...form.service_addons,stentvatt:chosen},include_fogsand:chosen.length>0})
