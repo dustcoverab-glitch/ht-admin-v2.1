@@ -614,99 +614,20 @@ export default function MailPage({ customers, C, isMobile }: any) {
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '0 0 40px' }}>
-              {/* Tråd — tidigare mail */}
-              {threadEmails.length > 0 && (
-                <div style={{ borderBottom: `1px solid ${C.border}` }}>
-                  <div style={{ padding: '8px 22px', background: C.bg, fontSize: 11, fontWeight: 600, color: C.textSec, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <i className="fas fa-code-branch"/> Tråd ({threadEmails.length + 1} mail)
-                  </div>
-                  {threadEmails.map((m,idx) => {
-                    const isMe = !m.from?.toLowerCase().includes(selected?.from?.split('@')[1] || '___')
-                    return (
-                      <div key={m.id} style={{ borderTop: `1px solid ${C.border}`, padding: '14px 22px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                          <div style={{ width: 28, height: 28, borderRadius: '50%', background: isMe ? `${C.primary}20` : '#10b98120', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <i className={isMe ? 'fas fa-user' : 'fas fa-user-tie'} style={{ fontSize: 11, color: isMe ? C.primary : '#10b981' }}/>
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{m.fromName || m.from}</div>
-                            <div style={{ fontSize: 10, color: C.textSec }}>{m.from}</div>
-                          </div>
-                          <div style={{ fontSize: 11, color: C.textSec, flexShrink: 0 }}>
-                            {new Date(m.date).toLocaleString('sv-SE',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
-                          </div>
-                        </div>
-                        <div style={{ paddingLeft: 36, fontSize: 13, color: C.text, lineHeight: 1.7, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
-                          {m.body?.split('\n').filter((_:string,i:number,a:string[])=>i<a.length-3||a.slice(i).some((l:string)=>l.trim())).join('\n')}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {/* Current mail separator */}
-                  <div style={{ padding: '6px 22px', background: `${C.primary}08`, borderTop: `1px solid ${C.border}`, fontSize: 11, fontWeight: 600, color: C.primary }}>
-                    <i className="fas fa-arrow-down"/> Senaste mail
-                  </div>
-                </div>
-              )}
 
-            {/* Mailinnehåll */}
-              <div style={{ padding: '18px 22px', borderBottom: `1px solid ${C.border}` }}>
-                {parsedForm ? (
-                  <div>
-                    <div style={{ marginBottom: 12, padding: '10px 14px', background: '#22c55e15', border: '1px solid #22c55e30', borderRadius: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#22c55e', marginBottom: 8 }}><i className="fas fa-wpforms" /> Formulärmail — kontaktuppgifter</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
-                        {Object.entries(parsedForm).map(([k,v]:any) => (
-                          <div key={k} style={{ fontSize: 12, color: C.text }}><span style={{ color: C.textSec, fontWeight: 600 }}>{k === 'name' ? 'Namn' : k === 'email' ? 'E-post' : k === 'phone' ? 'Telefon' : k === 'address' ? 'Adress' : k === 'message' ? 'Meddelande' : k}:</span> {v}</div>
-                        ))}
-                      </div>
-                      {!linkedCustomer && (
-                        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
-                          <button onClick={() => autoCreateCustomer(parsedForm)}
-                            style={{ padding: '6px 14px', background: '#22c55e', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                            <i className="fas fa-user-plus" /> Skapa kund (formulär)
-                          </button>
-                          <button onClick={aiCreateCustomer} disabled={aiCreateLoading}
-                            style={{ padding: '6px 14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: aiCreateLoading ? 0.7 : 1 }}>
-                            {aiCreateLoading ? <><i className="fas fa-spinner fa-spin" /> Analyserar...</> : <><i className="fas fa-magic" /> AI skapar kund</>}
-                          </button>
-                          {autoCreateStatus && <span style={{ fontSize: 12, fontWeight: 600, color: autoCreateStatus.startsWith('✓') ? '#22c55e' : '#ef4444' }}>{autoCreateStatus}</span>}
-                        </div>
-                      )}
-                    </div>
-                    <pre style={{ fontSize: 13, color: C.textSec, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
-                  </div>
-                ) : (
-                  <div>
-                    <pre style={{ fontSize: 13, color: C.text, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
-                    {!linkedCustomer && (
-                      <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' as const }}>
-                        <button onClick={aiCreateCustomer} disabled={aiCreateLoading}
-                          style={{ padding: '6px 14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: aiCreateLoading ? 0.7 : 1 }}>
-                          {aiCreateLoading ? <><i className="fas fa-spinner fa-spin" /> Analyserar...</> : <><i className="fas fa-magic" /> AI skapar kund</>}
-                        </button>
-                        {autoCreateStatus && <span style={{ fontSize: 12, fontWeight: 600, color: autoCreateStatus.startsWith('✓') ? '#22c55e' : '#ef4444' }}>{autoCreateStatus}</span>}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Kundinfo */}
-              {linkedCustomer && (
-                <div style={{ margin: '14px 22px 0', padding: '10px 14px', background: `${C.primary}08`, border: `1px solid ${C.primary}20`, borderRadius: 8 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.primary, marginBottom: 4 }}><i className="fas fa-user" /> {linkedCustomer.name}</div>
-                  <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' as const }}>
+              {/* ── AI-SVAR ÖVERST (som Outlook) ── */}
+              <div style={{ padding: '16px 22px', borderBottom: `1px solid ${C.border}`, background: `${C.primary}04` }}>
+                {/* Kundinfo kompakt */}
+                {linkedCustomer && (
+                  <div style={{ marginBottom: 10, padding: '8px 12px', background: `${C.primary}08`, border: `1px solid ${C.primary}20`, borderRadius: 8, display: 'flex', gap: 14, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.primary }}><i className="fas fa-user" /> {linkedCustomer.name}</span>
                     {linkedCustomer.address && <span style={{ fontSize: 11, color: C.textSec }}><i className="fas fa-map-marker-alt" /> {linkedCustomer.address}</span>}
                     {linkedCustomer.price_excl_vat && <span style={{ fontSize: 11, color: C.textSec }}><i className="fas fa-coins" /> {parseFloat(linkedCustomer.price_excl_vat).toLocaleString('sv')} kr</span>}
                     {linkedCustomer.note && <span style={{ fontSize: 11, color: C.textSec, fontStyle: 'italic' }}>{linkedCustomer.note}</span>}
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* AI + svar */}
-              <div style={{ padding: '18px 22px 0' }}>
-                <div style={{ marginBottom: 10 }}>
+                <div style={{ marginBottom: 8 }}>
                   <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: C.textSec, marginBottom: 5 }}>Instruktioner till AI <span style={{ fontWeight: 400 }}>(valfritt)</span></label>
                   <textarea value={userNote} onChange={e => setUserNote(e.target.value)} rows={2}
                     placeholder="T.ex. 'Erbjud tisdag 8 april kl 10 och 14', 'Vi är fullt bokade i april'..."
@@ -714,7 +635,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
                 </div>
 
                 <button onClick={generateAiDraft} disabled={aiLoading}
-                  style={{ padding: '8px 18px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: aiLoading ? 'default' : 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 14, opacity: aiLoading ? 0.7 : 1 }}>
+                  style={{ padding: '8px 18px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: aiLoading ? 'default' : 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: editedDraft ? 14 : 0, opacity: aiLoading ? 0.7 : 1 }}>
                   {aiLoading ? <><i className="fas fa-spinner fa-spin" /> Genererar...</> : <><i className="fas fa-magic" /> Generera AI-svar</>}
                 </button>
 
@@ -773,6 +694,54 @@ export default function MailPage({ customers, C, isMobile }: any) {
                   </div>
                 )}
               </div>
+
+              {/* ── SENASTE MAILET (under AI-svar) ── */}
+              <div style={{ padding: '18px 22px', borderBottom: `1px solid ${C.border}` }}>
+                {parsedForm ? (
+                  <div>
+                    <div style={{ marginBottom: 12, padding: '10px 14px', background: '#22c55e15', border: '1px solid #22c55e30', borderRadius: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#22c55e', marginBottom: 8 }}><i className="fas fa-wpforms" /> Formulärmail — kontaktuppgifter</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+                        {Object.entries(parsedForm).map(([k,v]:any) => (
+                          <div key={k} style={{ fontSize: 12, color: C.text }}><span style={{ color: C.textSec, fontWeight: 600 }}>{k === 'name' ? 'Namn' : k === 'email' ? 'E-post' : k === 'phone' ? 'Telefon' : k === 'address' ? 'Adress' : k === 'message' ? 'Meddelande' : k}:</span> {v}</div>
+                        ))}
+                      </div>
+                      {!linkedCustomer && (
+                        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                          <button onClick={() => autoCreateCustomer(parsedForm)}
+                            style={{ padding: '6px 14px', background: '#22c55e', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                            <i className="fas fa-user-plus" /> Skapa kund (formulär)
+                          </button>
+                          <button onClick={aiCreateCustomer} disabled={aiCreateLoading}
+                            style={{ padding: '6px 14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: aiCreateLoading ? 0.7 : 1 }}>
+                            {aiCreateLoading ? <><i className="fas fa-spinner fa-spin" /> Analyserar...</> : <><i className="fas fa-magic" /> AI skapar kund</>}
+                          </button>
+                          {autoCreateStatus && <span style={{ fontSize: 12, fontWeight: 600, color: autoCreateStatus.startsWith('✓') ? '#22c55e' : '#ef4444' }}>{autoCreateStatus}</span>}
+                        </div>
+                      )}
+                    </div>
+                    <pre style={{ fontSize: 13, color: C.textSec, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
+                  </div>
+                ) : (
+                  <div>
+                    <pre style={{ fontSize: 13, color: C.text, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selected.body}</pre>
+                    {!linkedCustomer && (
+                      <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' as const }}>
+                        <button onClick={aiCreateCustomer} disabled={aiCreateLoading}
+                          style={{ padding: '6px 14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: aiCreateLoading ? 0.7 : 1 }}>
+                          {aiCreateLoading ? <><i className="fas fa-spinner fa-spin" /> Analyserar...</> : <><i className="fas fa-magic" /> AI skapar kund</>}
+                        </button>
+                        {autoCreateStatus && <span style={{ fontSize: 12, fontWeight: 600, color: autoCreateStatus.startsWith('✓') ? '#22c55e' : '#ef4444' }}>{autoCreateStatus}</span>}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ── TIDIGARE TRÅD LÄNGST NED (kollapsbar) ── */}
+              {threadEmails.length > 0 && (
+                <ThreadView emails={threadEmails} selected={selected} C={C} />
+              )}
             </div>
           </div>
         ) : (
