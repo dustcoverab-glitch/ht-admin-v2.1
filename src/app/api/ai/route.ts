@@ -224,6 +224,18 @@ const tools: Anthropic.Tool[] = [
       required: ['customer_id'],
     },
   },
+  {
+    name: 'get_calendar',
+    description: 'Hämta kalenderbokningar för att se lediga tider och befintliga bokningar. Använd när du behöver föreslå datum eller kontrollera tillgänglighet.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        from_date: { type: 'string', description: 'Start-datum YYYY-MM-DD (default: idag)' },
+        to_date: { type: 'string', description: 'Slut-datum YYYY-MM-DD (default: +14 dagar)' },
+      },
+      required: [],
+    },
+  },
 ]
 
 async function executeFunction(name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -381,6 +393,43 @@ async function executeFunction(name: string, args: Record<string, unknown>): Pro
         }
         return { customer_id: found.ref.id, name: d.name, services, service_progress, service_kvm, step_info: stepInfo, rejected: d.rejected ?? false, status: d.status ?? 'new' }
       }
+      case 'get_calendar': {
+        const today = new Date().toISOString().slice(0, 10)
+        const twoWeeksLater = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+        const fromDate = String(args.from_date ?? today)
+        const toDate = String(args.to_date ?? twoWeeksLater)
+        
+        const snap = await adminDb.collection('calendar_events')
+          .where('date', '>=', fromDate)
+          .where('date', '<=', toDate)
+          .orderBy('date', 'asc')
+          .orderBy('start_time', 'asc')
+          .get()
+        
+        const events = snap.docs.map(d => {
+          const data = d.data()
+          return {
+            id: d.id,
+            date: data.date,
+            start_time: data.start_time,
+            end_time: data.end_time,
+            customer_name: data.customer_name ?? '',
+            customer_id: data.customer_id ?? '',
+            service: data.service ?? '',
+            operators: data.operators ?? [],
+            notes: data.notes ?? '',
+          }
+        })
+        
+        // Group by date for readability
+        const byDate: Record<string, typeof events> = {}
+        for (const e of events) {
+          if (!byDate[e.date]) byDate[e.date] = []
+          byDate[e.date].push(e)
+        }
+        
+        return { from_date: fromDate, to_date: toDate, events, events_by_date: byDate, total_bookings: events.length }
+      }
       case 'delete_customer': {
         const customerId = String(args.customer_id ?? ''); const confirmed = Boolean(args.confirmed ?? false)
         if (!confirmed) { const found = await findDoc(customerId, 'customers'); const displayName = found?.data.name ?? customerId; return { needs_confirmation: true, message: `Vill du verkligen ta bort "${displayName}" permanent? Svara "ja, ta bort" för att bekräfta.` } }
@@ -478,7 +527,7 @@ REGLER:
 1. Agera direkt utan att fråga "Vill du att jag ska...?"
 2. update_person: skicka personens NAMN som doc_id
 3. add_service_to_customer och add_note: skicka personens NAMN som customer_id
-4. Kör find_person_by_name INNAN create_customer och add_to_maintenance_contracts
+4. Kör find_person_by_name INNAN create_customer och add_to_maintenance_contacts
 5. "Underhållsavtal/årligt underhåll" → ENDAST add_to_maintenance_contracts
 6. Service-nycklar: stentvatt | altantvatt | asfaltstvatt | fasadtvatt | taktvatt
 7. Fråga om kvm om det saknas. Fråga om fogsand vid stentvatt
@@ -493,6 +542,7 @@ REGLER:
 16. Markera kund som ej accepterad → reject_customer (bekräfta alltid med användaren)
 17. Ångra ej-accepterad → unreject_customer
 18. Du kan göra ALLT som rör kundhantering — använd alltid rätt verktyg direkt
+19. **KALENDER & TIDSFÖRSLAG**: Använd get_calendar för att se bokningar och föreslå lediga tider. När kund frågar om tid/datum eller du behöver föreslå tid → kör get_calendar FÖRST, analysera lediga luckor, föreslå konkreta datum/tider som inte krockar.
 
 TJÄNSTESTEG (visa dessa när du förklarar status):
 • stentvatt (med fogsand): Ej påbörjad → Inbokat hembesök → Hembesök → Offert → Bokat → Stentvätt → Impregnering → Fogsand → Fakturering → Fakturerad
