@@ -171,6 +171,20 @@ export default function MailPage({ customers, C, isMobile }: any) {
     setSendStatus('')
     setAutoCreateStatus('')
     setThreadEmails([])
+    
+    // Load existing draft if available
+    try {
+      const draftRes = await fetch('/api/mail?' + new URLSearchParams({ action: 'listDrafts' }))
+      const draftData = await draftRes.json()
+      const existingDraft = (draftData.emails || []).find((d: any) => 
+        d.threadId === email.threadId || 
+        (d.to === (email.replyTo || email.from) && d.subject === (email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`))
+      )
+      if (existingDraft && existingDraft.body) {
+        setEditedDraft(existingDraft.body)
+      }
+    } catch {}
+    
     const match = customers.find((c: any) =>
       c.email && email.from && email.from.toLowerCase().includes(c.email.toLowerCase())
     )
@@ -219,7 +233,24 @@ export default function MailPage({ customers, C, isMobile }: any) {
         body: JSON.stringify({ message: prompt, customers: [] })
       })
       const d = await r.json()
-      setEditedDraft(d.reply || d.message || '')
+      const draft = d.reply || d.message || ''
+      setEditedDraft(draft)
+      
+      // Auto-save as draft
+      if (draft.trim()) {
+        await fetch('/api/mail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'saveDraft',
+            to: selected.replyTo || selected.from,
+            subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`,
+            body: draft,
+            threadId: selected.threadId
+          })
+        })
+        loadDrafts()
+      }
     } catch { setEditedDraft('Kunde inte generera svar. Försök igen.') }
     setAiLoading(false)
   }
