@@ -206,6 +206,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: r.ok })
   }
 
+  if (action === 'listDrafts') {
+    if (!token) return NextResponse.json({ emails: [] })
+    const r = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders/drafts/messages?$top=50&$select=id,subject,from,toRecipients,body,receivedDateTime,hasAttachments,internetMessageId,conversationId', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!r.ok) return NextResponse.json({ emails: [] })
+    const data = await r.json()
+    const emails = (data.value || []).map((m: any) => ({
+      id: m.id,
+      subject: m.subject || '(inget ämne)',
+      from: m.from?.emailAddress?.address || '',
+      to: m.toRecipients?.[0]?.emailAddress?.address || '',
+      body: m.body?.content?.replace(/<[^>]+>/g, '').trim() || '',
+      date: m.receivedDateTime,
+      hasAttachments: m.hasAttachments,
+      threadId: m.conversationId,
+    }))
+    return NextResponse.json({ emails })
+  }
+
   if (action === 'send') {
     if (!token) return NextResponse.json({ success: false, error: 'Not authenticated' })
     const logoUrl = 'https://ht-admin-v2-1.vercel.app/ht-logo.png'

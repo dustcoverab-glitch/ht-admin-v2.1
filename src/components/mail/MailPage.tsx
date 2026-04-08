@@ -176,24 +176,14 @@ export default function MailPage({ customers, C, isMobile }: any) {
     try {
       const draftRes = await fetch('/api/mail?' + new URLSearchParams({ action: 'listDrafts' }))
       const draftData = await draftRes.json()
-      console.log('[MailPage] Loaded drafts:', draftData.emails?.length || 0)
-      
-      const existingDraft = (draftData.emails || []).find((d: any) => {
-        const matchThread = d.threadId && d.threadId === email.threadId
-        const matchSubject = d.to === (email.replyTo || email.from) && d.subject === (email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`)
-        console.log('[MailPage] Checking draft:', { draftTo: d.to, emailFrom: email.from, matchThread, matchSubject })
-        return matchThread || matchSubject
-      })
-      
+      const existingDraft = (draftData.emails || []).find((d: any) => 
+        d.threadId === email.threadId || 
+        (d.to === (email.replyTo || email.from) && d.subject === (email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`))
+      )
       if (existingDraft && existingDraft.body) {
-        console.log('[MailPage] Found existing draft, loading:', existingDraft.body.substring(0, 50))
         setEditedDraft(existingDraft.body)
-      } else {
-        console.log('[MailPage] No draft found for this email')
       }
-    } catch (err) {
-      console.error('[MailPage] Failed to load drafts:', err)
-    }
+    } catch {}
     
     const match = customers.find((c: any) =>
       c.email && email.from && email.from.toLowerCase().includes(c.email.toLowerCase())
