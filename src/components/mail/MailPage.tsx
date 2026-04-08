@@ -243,7 +243,8 @@ export default function MailPage({ customers, C, isMobile }: any) {
       
       // Auto-save as draft
       if (draft.trim()) {
-        await fetch('/api/mail', {
+        console.log('[generateAiDraft] Saving draft with threadId:', selected.threadId || selected.conversationId)
+        const saveRes = await fetch('/api/mail', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -251,12 +252,17 @@ export default function MailPage({ customers, C, isMobile }: any) {
             to: selected.replyTo || selected.from,
             subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`,
             body: draft,
-            threadId: selected.threadId
+            threadId: selected.threadId || selected.conversationId || selected.internetMessageId
           })
         })
+        const saveData = await saveRes.json()
+        console.log('[generateAiDraft] Save result:', saveData)
         loadDrafts()
       }
-    } catch { setEditedDraft('Kunde inte generera svar. Försök igen.') }
+    } catch (err) {
+      console.error('[generateAiDraft] Error:', err)
+      setEditedDraft('Kunde inte generera svar. Försök igen.')
+    }
     setAiLoading(false)
   }
 

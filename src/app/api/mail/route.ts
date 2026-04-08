@@ -203,15 +203,19 @@ export async function POST(req: NextRequest) {
   if (action === 'saveDraft') {
     if (!token) return NextResponse.json({ success: false })
     
+    console.log('[saveDraft] Request body:', { to: body.to, subject: body.subject, hasBody: !!body.body, threadId: body.threadId })
+    
     // If threadId provided, create reply draft (keeps conversation context)
     if (body.threadId) {
       try {
+        console.log('[saveDraft] Creating reply draft for threadId:', body.threadId)
         // Find original message in thread to reply to
         const threadRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages?$filter=conversationId eq '${body.threadId}'&$top=1&$orderby=receivedDateTime desc`, {
           headers: { Authorization: `Bearer ${token}` }
         })
         const threadData = await threadRes.json()
         const originalMsg = threadData.value?.[0]
+        console.log('[saveDraft] Found original message:', originalMsg?.id)
         
         if (originalMsg) {
           // Create reply draft
@@ -220,16 +224,18 @@ export async function POST(req: NextRequest) {
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
           })
           const draftMsg = await replyDraft.json()
+          console.log('[saveDraft] Created draft:', draftMsg.id)
           
           // Update draft body
-          await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draftMsg.id}`, {
+          const updateRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draftMsg.id}`, {
             method: 'PATCH',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
               body: { contentType: 'HTML', content: (body.body || '').replace(/\n/g, '<br>') }
             })
           })
-          return NextResponse.json({ success: true })
+          console.log('[saveDraft] Updated draft body, status:', updateRes.status)
+          return NextResponse.json({ success: true, draftId: draftMsg.id })
         }
       } catch (err) {
         console.error('[saveDraft] Failed to create reply draft:', err)
@@ -237,6 +243,7 @@ export async function POST(req: NextRequest) {
     }
     
     // Fallback: create standalone draft
+    console.log('[saveDraft] Creating standalone draft (no threadId)')
     const message = {
       subject: body.subject,
       body: { contentType: 'HTML', content: (body.body || '').replace(/\n/g, '<br>') },
@@ -247,7 +254,9 @@ export async function POST(req: NextRequest) {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(message)
     })
-    return NextResponse.json({ success: r.ok })
+    const result = await r.json()
+    console.log('[saveDraft] Standalone draft result:', result)
+    return NextResponse.json({ success: r.ok, draftId: result.id })
   }
 
   if (action === 'listDrafts') {
