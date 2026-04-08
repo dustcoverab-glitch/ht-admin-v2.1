@@ -191,8 +191,52 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: r.ok })
   }
 
+  if (action === 'delete') {
+    if (!token) return NextResponse.json({ success: false })
+    const r = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${body.emailId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    return NextResponse.json({ success: r.ok || r.status === 204 })
+  }
+
   if (action === 'saveDraft') {
     if (!token) return NextResponse.json({ success: false })
+    
+    // If threadId provided, create reply draft (keeps conversation context)
+    if (body.threadId) {
+      try {
+        // Find original message in thread to reply to
+        const threadRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages?$filter=conversationId eq '${body.threadId}'&$top=1&$orderby=receivedDateTime desc`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        const threadData = await threadRes.json()
+        const originalMsg = threadData.value?.[0]
+        
+        if (originalMsg) {
+          // Create reply draft
+          const replyDraft = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${originalMsg.id}/createReply`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+          })
+          const draftMsg = await replyDraft.json()
+          
+          // Update draft body
+          await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draftMsg.id}`, {
+            method: 'PATCH',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              body: { contentType: 'HTML', content: (body.body || '').replace(/\n/g, '<br>') }
+            })
+          })
+          return NextResponse.json({ success: true })
+        }
+      } catch (err) {
+        console.error('[saveDraft] Failed to create reply draft:', err)
+      }
+    }
+    
+    // Fallback: create standalone draft
     const message = {
       subject: body.subject,
       body: { contentType: 'HTML', content: (body.body || '').replace(/\n/g, '<br>') },

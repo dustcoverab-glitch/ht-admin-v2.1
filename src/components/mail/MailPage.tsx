@@ -165,7 +165,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
 
   async function openEmail(email: any) {
     setSelected(email)
-    setEditedDraft('')
+    // Don't clear editedDraft immediately — let the draft load first
     setUserNote('')
     setAttachments([])
     setSendStatus('')
@@ -173,6 +173,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
     setThreadEmails([])
     
     // Load existing draft if available
+    let draftLoaded = false
     try {
       const draftRes = await fetch('/api/mail?' + new URLSearchParams({ action: 'listDrafts' }))
       const draftData = await draftRes.json()
@@ -182,8 +183,12 @@ export default function MailPage({ customers, C, isMobile }: any) {
       )
       if (existingDraft && existingDraft.body) {
         setEditedDraft(existingDraft.body)
+        draftLoaded = true
       }
     } catch {}
+    
+    // Only clear draft if none was found
+    if (!draftLoaded) setEditedDraft('')
     
     const match = customers.find((c: any) =>
       c.email && email.from && email.from.toLowerCase().includes(c.email.toLowerCase())
@@ -654,6 +659,22 @@ export default function MailPage({ customers, C, isMobile }: any) {
                 <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 2 }}>{selected.subject}</div>
                 <div style={{ fontSize: 12, color: C.textSec }}><strong style={{ color: C.text }}>{selected.fromName || selected.from}</strong> · {new Date(selected.date).toLocaleString('sv-SE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
               </div>
+              {/* Ta bort */}
+              <button onClick={async () => {
+                if (!confirm('Vill du ta bort detta mail?')) return
+                try {
+                  await fetch('/api/mail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'delete', emailId: selected.id })
+                  })
+                  setSelected(null)
+                  loadEmails(folder)
+                } catch {}
+              }} title="Ta bort"
+                style={{ padding: '5px 10px', background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: '#ef4444', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+                <i className="fas fa-trash" /> Ta bort
+              </button>
               {/* Arkivera */}
               <button onClick={() => archiveMail(selected.id)} title="Arkivera"
                 style={{ padding: '5px 10px', background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: C.textSec, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
