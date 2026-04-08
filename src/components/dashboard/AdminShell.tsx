@@ -2754,16 +2754,36 @@ function StatPage({customers,allLogs,C,isMobile}:any){
               // Normalisera materialnamn till standardkategorier
               function normalizeMaterialName(raw: string): string {
                 const n = raw.toLowerCase().trim()
+                
+                // Material-specifika kategorier
                 if(/kisel|silikat/.test(n)) return 'Kiselimpregnering'
                 if(/flexifog|flexibel fog|flex fog|flexibel fogsand/.test(n)) return 'Flexibel fogsand'
                 if(/ogräs|ogrash|ogräshämmande|ograshammande/.test(n)) return 'Ogräshämmande fogsand'
                 if(/fogsand|fog sand/.test(n)) return 'Fogsand'
                 if(/stenmjöl|stenmjol/.test(n)) return 'Stenmjöl'
-                if(/impregner/.test(n)) return 'Impregnering'
                 if(/biocid|mossmedel|algmedel|algbort/.test(n)) return 'Biocid/Algmedel'
                 if(/träsåpa|tra.?sapa|rengöringssåpa|såpa/.test(n)) return 'Träsåpa'
                 if(/träolja|tra.?olja|terrassolja/.test(n)) return 'Träolja'
                 if(/tvättmedel|rengöringsmedel/.test(n)) return 'Rengöringsmedel'
+                
+                // Impregnering (utan kisel)
+                if(/impregner/.test(n) && !/kisel/.test(n)) return 'Impregnering'
+                
+                // Generiska materialkostnader per jobbtyp
+                if(/materialkostnad|materialkostnader/.test(n)) {
+                  if(/altan/.test(n)) return 'Materialkostnader - Altan'
+                  if(/sten/.test(n)) return 'Materialkostnader - Sten'
+                  if(/betong/.test(n)) return 'Materialkostnader - Betong'
+                  if(/kalksten/.test(n)) return 'Materialkostnader - Kalksten'
+                  // Generiska med rabattsatser
+                  if(/30%|30 %/.test(n)) return 'Materialkostnader (30% rabatt)'
+                  if(/20%|20 %/.test(n)) return 'Materialkostnader (20% rabatt)'
+                  if(/15%|15 %/.test(n)) return 'Materialkostnader (15% rabatt)'
+                  // Fallback: generiska materialkostnader
+                  return 'Materialkostnader (övrigt)'
+                }
+                
+                // Om inget matchade, returnera originalet (max 35 tecken)
                 return raw.trim().slice(0, 35)
               }
               // Aggregera alla material-poster över alla jobb
