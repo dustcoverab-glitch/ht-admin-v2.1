@@ -615,7 +615,41 @@ ${memory}`
       .filter(m => m.content.trim().length > 0 && m.content.length < 5000)
     )
 
-    return NextResponse.json({ reply, actions, model: 'claude-opus-4-5-20251101', usage: { prompt: totalInput, completion: totalOutput } })
+    // Extract time slot suggestions if present
+    let timeSlots: any[] | undefined
+    for (const action of actions) {
+      if ((action as any).function === 'get_calendar' && (action as any).result?.events) {
+        const events = (action as any).result.events
+        // Generate 3-4 free slots (simple heuristic: find gaps between 08:00-17:00)
+        const today = new Date().toISOString().slice(0, 10)
+        const slots: { date: string; start: string; end: string; label: string }[] = []
+        
+        // Suggest next 7 days
+        for (let dayOffset = 0; dayOffset < 7 && slots.length < 4; dayOffset++) {
+          const checkDate = new Date(Date.now() + dayOffset * 86400000).toISOString().slice(0, 10)
+          const dayEvents = events.filter((e: any) => e.date === checkDate).sort((a: any, b: any) => a.start_time.localeCompare(b.start_time))
+          
+          // Morning slot 09:00-12:00
+          if (!dayEvents.some((e: any) => e.start_time < '12:00' && e.end_time > '09:00')) {
+            const d = new Date(checkDate + 'T00:00:00')
+            const weekday = ['Sön', 'Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör'][d.getDay()]
+            slots.push({ date: checkDate, start: '09:00', end: '12:00', label: `${weekday} ${d.getDate()}/${d.getMonth() + 1}, 09:00-12:00` })
+          }
+          
+          // Afternoon slot 13:00-16:00
+          if (!dayEvents.some((e: any) => e.start_time < '16:00' && e.end_time > '13:00') && slots.length < 4) {
+            const d = new Date(checkDate + 'T00:00:00')
+            const weekday = ['Sön', 'Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör'][d.getDay()]
+            slots.push({ date: checkDate, start: '13:00', end: '16:00', label: `${weekday} ${d.getDate()}/${d.getMonth() + 1}, 13:00-16:00` })
+          }
+        }
+        
+        if (slots.length > 0) timeSlots = slots.slice(0, 4)
+        break
+      }
+    }
+
+    return NextResponse.json({ reply, actions, timeSlots, model: 'claude-opus-4-5-20251101', usage: { prompt: totalInput, completion: totalOutput } })
   } catch (err: any) {
     console.error('[AI Route Error]', err)
     return NextResponse.json({ error: err.message }, { status: 500 })

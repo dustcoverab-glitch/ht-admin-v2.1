@@ -6,6 +6,7 @@ interface Message {
   content: string
   imageUrl?: string
   loading?: boolean
+  timeSlots?: { date: string; start: string; end: string; label: string }[]
 }
 
 interface Colors {
@@ -85,6 +86,11 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
     e.target.value = ''
   }
 
+  async function selectTimeSlot(slot: { date: string; start: string; end: string; label: string }) {
+    const prompt = `Jag valde ${slot.label}. Skriv ett proffsigt mailsvar som bekräftar bokningen för ${slot.date} kl ${slot.start}-${slot.end}. Inkludera vänlig hälsning och att vi ser fram emot jobbet.`
+    await sendMessage(prompt)
+  }
+
   async function sendMessage(overrideText?: string){
     const text = (overrideText ?? input).trim()
     if(!text && !pendingImage) return
@@ -109,6 +115,7 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
       setMessages(prev => prev.slice(0,-1).concat({
         role: 'assistant',
         content: data.error ? `❌ Fel: ${data.error}` : (data.reply || '(Inget svar)'),
+        timeSlots: data.timeSlots,
       }))
       if (data.actions?.length > 0) onAction()
     } catch(err:any){
@@ -183,6 +190,34 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
                 : msg.content
               }
             </div>
+            
+            {/* Time slot buttons */}
+            {msg.timeSlots && msg.timeSlots.length > 0 && (
+              <div style={{marginTop:6,display:'flex',flexDirection:'column',gap:6,width:'92%',maxWidth:360}}>
+                <div style={{fontSize:11,fontWeight:700,color:textSec,letterSpacing:'0.05em',textTransform:'uppercase'}}>📅 Föreslå tid:</div>
+                {msg.timeSlots.map((slot, idx) => (
+                  <button key={idx} onClick={() => selectTimeSlot(slot)}
+                    style={{
+                      textAlign:'left',padding:'10px 14px',background:surface,
+                      border:`1.5px solid ${border}`,borderRadius:10,
+                      color:textMain,fontSize:13,fontWeight:600,cursor:'pointer',
+                      fontFamily:'inherit',transition:'all 0.15s',
+                      display:'flex',alignItems:'center',gap:8,
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = `${primary}12`
+                      e.currentTarget.style.borderColor = primary
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = surface
+                      e.currentTarget.style.borderColor = border
+                    }}>
+                    <span style={{fontSize:16}}>📆</span>
+                    <span>{slot.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
 
