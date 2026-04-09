@@ -954,6 +954,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
           {/* ── Reading body ── */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
 
+          {!(selected.isDraft || folder === 'drafts') && (<>
             {/* Subject */}
             <div style={{ padding: '18px 24px 12px', borderBottom: `1px solid ${C.border}` }}>
               <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0, lineHeight: 1.3 }}>{selected.subject}</h2>
@@ -1058,6 +1059,8 @@ export default function MailPage({ customers, C, isMobile }: any) {
                 )}
               </div>
             )}
+
+          </>)} {/* end !(isDraft) */}
 
             {/* ── REPLY / DRAFT EDIT PANEL (Outlook inline style) ── */}
             {replyOpen && (
