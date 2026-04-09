@@ -4,9 +4,16 @@ import { useState, useRef, useEffect } from 'react'
 interface Message {
   role: 'user' | 'assistant'
   content: string
-  imageUrl?: string
+  imageUrls?: string[]
   loading?: boolean
   timeSlots?: { date: string; start: string; end: string; label: string }[]
+}
+
+interface PendingImage {
+  dataUrl: string
+  name: string
+  base64: string
+  mediaType: string
 }
 
 interface Colors {
@@ -40,12 +47,11 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
   const inputBg  = C?.input    ?? (dark ? '#111111' : '#ffffff')
   const inputBdr = C?.inputBorder ?? (dark ? '#333333' : '#e2e8f0')
 
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input,            setInput]           = useState('')
-  const [loading,          setLoading]         = useState(false)
-  const [pendingImage,     setPendingImage]    = useState<string|null>(null)
-  const [pendingImageName, setPendingImageName]= useState<string|null>(null)
-  const [showQuick,        setShowQuick]       = useState(true)
+  const [messages, setMessages]         = useState<Message[]>([])
+  const [input,    setInput]            = useState('')
+  const [loading,  setLoading]          = useState(false)
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([])
+  const [showQuick, setShowQuick]       = useState(true)
 
   const fileRef     = useRef<HTMLInputElement>(null)
   const bottomRef   = useRef<HTMLDivElement>(null)
@@ -59,68 +65,73 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
     el.style.height=Math.min(el.scrollHeight,160)+'px'
   }
 
-  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => {
-      const src = ev.target?.result as string
-      const img = new Image()
-      img.onload = () => {
-        const MAX = 1920
-        if (img.width <= MAX && img.height <= MAX) {
-          setPendingImage(src); setPendingImageName(file.name); return
+  function resizeAndEncode(file: File): Promise<PendingImage> {
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = ev => {
+        const src = ev.target?.result as string
+        const img = new Image()
+        img.onload = () => {
+          const MAX = 1920
+          let dataUrl = src
+          if (img.width > MAX || img.height > MAX) {
+            const scale = MAX / Math.max(img.width, img.height)
+            const w = Math.round(img.width * scale), h = Math.round(img.height * scale)
+            const canvas = document.createElement('canvas')
+            canvas.width = w; canvas.height = h
+            canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
+            const isPhoto = file.type === 'image/jpeg' || file.type === 'image/jpg'
+            dataUrl = isPhoto ? canvas.toDataURL('image/jpeg', 0.95) : canvas.toDataURL('image/png')
+          }
+          const [meta, b64] = dataUrl.split(',')
+          const mediaType = meta.replace('data:', '').replace(';base64', '')
+          resolve({ dataUrl, name: file.name, base64: b64, mediaType })
         }
-        const scale = MAX / Math.max(img.width, img.height)
-        const w = Math.round(img.width * scale), h = Math.round(img.height * scale)
-        const canvas = document.createElement('canvas')
-        canvas.width = w; canvas.height = h
-        canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
-        const isPhoto = file.type === 'image/jpeg' || file.type === 'image/jpg'
-        setPendingImage(isPhoto ? canvas.toDataURL('image/jpeg', 0.95) : canvas.toDataURL('image/png'))
-        setPendingImageName(file.name)
+        img.src = src
       }
-      img.src = src
-    }
-    reader.readAsDataURL(file)
+      reader.readAsDataURL(file)
+    })
+  }
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
+    const processed = await Promise.all(files.map(resizeAndEncode))
+    setPendingImages(prev => [...prev, ...processed])
     e.target.value = ''
   }
 
+  function removeImage(idx: number) {
+    setPendingImages(prev => prev.filter((_, i) => i !== idx))
+  }
+
   async function selectTimeSlot(slot: { date: string; start: string; end: string; label: string }) {
-    const prompt = `Jag valde ${slot.label}. Skriv ett proffsigt mailsvar som bekräftar bokningen för ${slot.date} kl ${slot.start}-${slot.end}. Inkludera vänlig hälsning och att vi ser fram emot jobbet.`
-    await sendMessage(prompt)
+    await sendMessage(`Jag valde ${slot.label}. Skriv ett proffsigt mailsvar som bekräftar bokningen för ${slot.date} kl ${slot.start}-${slot.end}. Inkludera vänlig hälsning och att vi ser fram emot jobbet.`)
   }
 
   async function sendMessage(overrideText?: string){
     const text = (overrideText ?? input).trim()
-    if(!text && !pendingImage) return
+    if(!text && !pendingImages.length) return
 
     setShowQuick(false)
-    const userMsg: Message = { role:'user', content: text || `[Bild: ${pendingImageName}]`, imageUrl: pendingImage ?? undefined }
+    const imgsForThisCall = pendingImages
+    const userMsg: Message = {
+      role: 'user',
+      content: text || `[${imgsForThisCall.length} bild${imgsForThisCall.length > 1 ? 'er' : ''}: ${imgsForThisCall.map(i=>i.name).join(', ')}]`,
+      imageUrls: imgsForThisCall.length ? imgsForThisCall.map(i => i.dataUrl) : undefined,
+    }
     setMessages(prev=>[...prev, userMsg, {role:'assistant', content:'', loading:true}])
-    setInput(''); setPendingImage(null); setPendingImageName(null); setLoading(true)
+    setInput(''); setPendingImages([]); setLoading(true)
 
     try {
-      // pendingImage is a data-URL like "data:image/jpeg;base64,/9j/..."
-      // Split it so we can send raw base64 to the server (Claude can't fetch internal URLs)
-      let imageBase64: string | undefined
-      let imageMediaType: string | undefined
-      const imgForThisCall = pendingImage  // capture before clearing
-      if (imgForThisCall && imgForThisCall.startsWith('data:')) {
-        const [meta, b64] = imgForThisCall.split(',')
-        imageBase64 = b64
-        imageMediaType = meta.replace('data:', '').replace(';base64', '')
-      }
-
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text || 'Läs av bilden.',
+          message: text || `Läs av ${imgsForThisCall.length > 1 ? 'dessa bilder' : 'bilden'}.`,
           sessionId: 'admin-session',
-          hasImage: !!imgForThisCall,
-          imageBase64: imageBase64 ?? undefined,
-          imageMediaType: imageMediaType ?? undefined,
+          hasImage: imgsForThisCall.length > 0,
+          images: imgsForThisCall.map(i => ({ base64: i.base64, mediaType: i.mediaType, name: i.name })),
         }),
       })
       const data = await res.json()
@@ -163,7 +174,6 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
       {/* Messages */}
       <div style={{flex:1,overflowY:'auto',padding:'16px',display:'flex',flexDirection:'column',gap:10,background:bg}}>
 
-        {/* Welcome + Quick actions */}
         {showQuick && messages.length === 0 && (
           <div style={{animation:'fadeIn 0.3s ease'}}>
             <div style={{padding:'16px',background:surface,borderRadius:12,border:`1px solid ${border}`,marginBottom:16}}>
@@ -185,8 +195,15 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
         )}
 
         {messages.map((msg,i)=>(
-          <div key={i} className="ai-msg" style={{display:'flex',flexDirection:'column',alignItems:msg.role==='user'?'flex-end':'flex-start',gap:3}}>
-            {msg.imageUrl && <img src={msg.imageUrl} alt="" style={{maxWidth:200,borderRadius:8,border:`1px solid ${border}`}}/>}
+          <div key={i} className="ai-msg" style={{display:'flex',flexDirection:'column',alignItems:msg.role==='user'?'flex-end':'flex-start',gap:4}}>
+            {/* Image previews in message */}
+            {msg.imageUrls && msg.imageUrls.length > 0 && (
+              <div style={{display:'flex',flexWrap:'wrap',gap:6,justifyContent:'flex-end',maxWidth:'92%'}}>
+                {msg.imageUrls.map((url, idx) => (
+                  <img key={idx} src={url} alt="" style={{height:80,maxWidth:160,borderRadius:8,border:`1px solid ${border}`,objectFit:'cover'}}/>
+                ))}
+              </div>
+            )}
             <div style={{
               maxWidth:'92%',padding:'10px 14px',
               borderRadius: msg.role==='user' ? '14px 14px 4px 14px' : '4px 14px 14px 14px',
@@ -202,28 +219,15 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
                 : msg.content
               }
             </div>
-            
-            {/* Time slot buttons */}
+
             {msg.timeSlots && msg.timeSlots.length > 0 && (
               <div style={{marginTop:6,display:'flex',flexDirection:'column',gap:6,width:'92%',maxWidth:360}}>
                 <div style={{fontSize:11,fontWeight:700,color:textSec,letterSpacing:'0.05em',textTransform:'uppercase'}}>📅 Föreslå tid:</div>
                 {msg.timeSlots.map((slot, idx) => (
                   <button key={idx} onClick={() => selectTimeSlot(slot)}
-                    style={{
-                      textAlign:'left',padding:'10px 14px',background:surface,
-                      border:`1.5px solid ${border}`,borderRadius:10,
-                      color:textMain,fontSize:13,fontWeight:600,cursor:'pointer',
-                      fontFamily:'inherit',transition:'all 0.15s',
-                      display:'flex',alignItems:'center',gap:8,
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.background = `${primary}12`
-                      e.currentTarget.style.borderColor = primary
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.background = surface
-                      e.currentTarget.style.borderColor = border
-                    }}>
+                    style={{textAlign:'left',padding:'10px 14px',background:surface,border:`1.5px solid ${border}`,borderRadius:10,color:textMain,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',transition:'all 0.15s',display:'flex',alignItems:'center',gap:8}}
+                    onMouseEnter={e=>{e.currentTarget.style.background=`${primary}12`;e.currentTarget.style.borderColor=primary}}
+                    onMouseLeave={e=>{e.currentTarget.style.background=surface;e.currentTarget.style.borderColor=border}}>
                     <span style={{fontSize:16}}>📆</span>
                     <span>{slot.label}</span>
                   </button>
@@ -233,7 +237,6 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
           </div>
         ))}
 
-        {/* Quick actions again after conversation */}
         {!showQuick && !loading && messages.length > 0 && (
           <button onClick={() => setShowQuick(true)}
             style={{alignSelf:'center',marginTop:4,padding:'5px 14px',background:'transparent',border:`1px solid ${border}`,borderRadius:9999,fontSize:11,color:textSec,cursor:'pointer',fontFamily:'inherit'}}>
@@ -244,23 +247,37 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
         <div ref={bottomRef}/>
       </div>
 
-      {/* Pending image */}
-      {pendingImage && (
-        <div style={{padding:'8px 14px',borderTop:`1px solid ${border}`,display:'flex',alignItems:'center',gap:8,background:surface,flexShrink:0}}>
-          <img src={pendingImage} alt="" style={{height:40,borderRadius:6,border:`1px solid ${border}`}}/>
-          <span style={{fontSize:12,color:textSec,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pendingImageName}</span>
-          <button onClick={()=>{setPendingImage(null);setPendingImageName(null)}} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:18,lineHeight:1}}>×</button>
+      {/* Pending images preview */}
+      {pendingImages.length > 0 && (
+        <div style={{padding:'8px 14px',borderTop:`1px solid ${border}`,background:surface,flexShrink:0}}>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            {pendingImages.map((img, idx) => (
+              <div key={idx} style={{position:'relative',flexShrink:0}}>
+                <img src={img.dataUrl} alt="" style={{height:48,width:48,borderRadius:8,objectFit:'cover',border:`1px solid ${border}`}}/>
+                <button onClick={() => removeImage(idx)}
+                  style={{position:'absolute',top:-6,right:-6,width:18,height:18,borderRadius:'50%',background:'#ef4444',border:'none',color:'white',cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1,padding:0}}>
+                  ×
+                </button>
+              </div>
+            ))}
+            <span style={{fontSize:12,color:textSec}}>{pendingImages.length} bild{pendingImages.length>1?'er':''} klar{pendingImages.length>1?'a':''}</span>
+          </div>
         </div>
       )}
 
       {/* Input */}
       <div style={{padding:'12px 14px',borderTop:`1px solid ${border}`,background:surface,flexShrink:0}}>
         <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
-          <button onClick={()=>fileRef.current?.click()} title="Bifoga bild"
-            style={{width:36,height:36,flexShrink:0,borderRadius:8,background:inputBg,border:`1px solid ${inputBdr}`,color:textSec,cursor:'pointer',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',transition:'border-color 0.15s'}}
+          <button onClick={()=>fileRef.current?.click()} title="Bifoga bilder (flera tillåtet)"
+            style={{width:36,height:36,flexShrink:0,borderRadius:8,background:pendingImages.length?`${primary}15`:inputBg,border:`1px solid ${pendingImages.length?primary:inputBdr}`,color:pendingImages.length?primary:textSec,cursor:'pointer',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',transition:'all 0.15s',position:'relative'}}
             onMouseEnter={e=>(e.currentTarget.style.borderColor=primary)}
-            onMouseLeave={e=>(e.currentTarget.style.borderColor=inputBdr)}>
+            onMouseLeave={e=>(e.currentTarget.style.borderColor=pendingImages.length?primary:inputBdr)}>
             📎
+            {pendingImages.length > 0 && (
+              <span style={{position:'absolute',top:-6,right:-6,width:16,height:16,borderRadius:'50%',background:primary,color:'white',fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                {pendingImages.length}
+              </span>
+            )}
           </button>
           <textarea ref={textareaRef} value={input}
             onChange={e=>{setInput(e.target.value);autoResize()}}
@@ -271,13 +288,15 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
             onFocus={e=>(e.target.style.borderColor=primary)}
             onBlur={e=>(e.target.style.borderColor=inputBdr)}
           />
-          <button onClick={()=>sendMessage()} disabled={loading||(!input.trim()&&!pendingImage)}
-            style={{width:36,height:36,flexShrink:0,borderRadius:8,background:(!loading&&(input.trim()||pendingImage))?`linear-gradient(135deg,${primary},#6366f1)`:`${primary}30`,border:'none',color:(!loading&&(input.trim()||pendingImage))?'white':textSec,cursor:loading?'not-allowed':'pointer',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,transition:'all 0.15s',boxShadow:(!loading&&(input.trim()||pendingImage))?`0 2px 8px ${primary}40`:'none'}}>
+          <button onClick={()=>sendMessage()} disabled={loading||(!input.trim()&&!pendingImages.length)}
+            style={{width:36,height:36,flexShrink:0,borderRadius:8,background:(!loading&&(input.trim()||pendingImages.length))?`linear-gradient(135deg,${primary},#6366f1)`:`${primary}30`,border:'none',color:(!loading&&(input.trim()||pendingImages.length))?'white':textSec,cursor:loading?'not-allowed':'pointer',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,transition:'all 0.15s',boxShadow:(!loading&&(input.trim()||pendingImages.length))?`0 2px 8px ${primary}40`:'none'}}>
             ↑
           </button>
         </div>
-        <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}} onChange={handleImageUpload}/>
+        <input ref={fileRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={handleImageUpload}/>
       </div>
     </div>
   )
 }
+
+

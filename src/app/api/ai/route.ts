@@ -517,9 +517,12 @@ Summera qty om samma kategori förekommer flera gånger på offerten.` }
     const userMessage = String(body.message ?? body.messages?.[body.messages?.length - 1]?.content ?? '')
     const sessionId = String(body.sessionId ?? 'default')
     const hasImage = Boolean(body.hasImage ?? false)
-    const imageUrl = String(body.imageUrl ?? '')
-    const imageBase64 = String(body.imageBase64 ?? '')  // direct base64 from client
-    const imageMediaType = String(body.imageMediaType ?? 'image/jpeg')
+    // Support both single image (legacy) and multiple images (new)
+    const images: { base64: string; mediaType: string; name?: string }[] = body.images ?? []
+    // Legacy single-image support
+    if (!images.length && body.imageBase64) {
+      images.push({ base64: String(body.imageBase64), mediaType: String(body.imageMediaType ?? 'image/jpeg') })
+    }
 
     const [memory, history] = await Promise.all([loadMemory(), loadHistory(sessionId)])
 
@@ -562,40 +565,22 @@ ${memory}`
       ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ]
 
-    // Build current user content (with optional image)
-    let imageSourceBlock: Anthropic.ImageBlockParam | null = null
-    if (hasImage) {
-      if (imageBase64) {
-        // Client sent base64 directly — use it
-        const validType = (imageMediaType.startsWith('image/') ? imageMediaType : 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
-        imageSourceBlock = {
-          type: 'image',
-          source: { type: 'base64', media_type: validType, data: imageBase64 }
+    // Build current user content — support multiple images
+    const imageBlocks: Anthropic.ImageBlockParam[] = images
+      .filter(img => img.base64 && img.mediaType)
+      .map(img => ({
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: (img.mediaType.startsWith('image/') ? img.mediaType : 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+          data: img.base64,
         }
-      } else if (imageUrl) {
-        // Try to download and convert to base64
-        try {
-          const imgRes = await fetch(imageUrl)
-          if (!imgRes.ok) throw new Error(`HTTP ${imgRes.status}`)
-          const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
-          const validType = (contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
-          const arrayBuf = await imgRes.arrayBuffer()
-          const b64 = Buffer.from(arrayBuf).toString('base64')
-          imageSourceBlock = {
-            type: 'image',
-            source: { type: 'base64', media_type: validType, data: b64 }
-          }
-        } catch (e: any) {
-          console.error('[AI] Failed to fetch image:', e.message)
-          // Fall through — send without image, mention error in text
-        }
-      }
-    }
+      }))
 
-    const userContent: Anthropic.MessageParam['content'] = imageSourceBlock
+    const userContent: Anthropic.MessageParam['content'] = imageBlocks.length > 0
       ? [
-          imageSourceBlock,
-          { type: 'text' as const, text: userMessage || 'Läs av bilden och extrahera all relevant information.' },
+          ...imageBlocks,
+          { type: 'text' as const, text: userMessage || `Läs av ${imageBlocks.length > 1 ? 'dessa bilder' : 'bilden'} och extrahera all relevant information.` },
         ]
       : userMessage
 
