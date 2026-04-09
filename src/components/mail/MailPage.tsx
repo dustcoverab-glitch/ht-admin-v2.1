@@ -286,6 +286,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
   // Svar-panel (Outlook inline reply)
   const [replyOpen, setReplyOpen] = useState(false)
   const [editedDraft, setEditedDraft] = useState('')
+  const [currentDraftId, setCurrentDraftId] = useState<string|null>(null)
   const [userNote, setUserNote] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [sendLoading, setSendLoading] = useState(false)
@@ -371,6 +372,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
     setSelected(email)
     setReplyOpen(false)
     setEditedDraft('')
+    setCurrentDraftId(null)
     setUserNote('')
     setAttachments([])
     setSendStatus('')
@@ -433,7 +435,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
       const draft = d.reply || d.message || ''
       setEditedDraft(draft)
       if (draft.trim()) {
-        await fetch('/api/mail', {
+        const saveRes = await fetch('/api/mail', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -441,9 +443,12 @@ export default function MailPage({ customers, C, isMobile }: any) {
             to: selected.replyTo || selected.from,
             subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`,
             body: draft,
-            threadId: selected.threadId || selected.conversationId || selected.internetMessageId
+            threadId: selected.threadId,
+            draftId: currentDraftId || undefined,
           })
         })
+        const saveData = await saveRes.json()
+        if (saveData.draftId) setCurrentDraftId(saveData.draftId)
         loadDrafts()
       }
     } catch {
@@ -490,11 +495,20 @@ export default function MailPage({ customers, C, isMobile }: any) {
   async function saveDraft() {
     if (!selected) return
     try {
-      await fetch('/api/mail', {
+      const res = await fetch('/api/mail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'saveDraft', to: selected.replyTo || selected.from, subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`, body: editedDraft })
+        body: JSON.stringify({
+          action: 'saveDraft',
+          to: selected.replyTo || selected.from,
+          subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`,
+          body: editedDraft,
+          threadId: selected.threadId,
+          draftId: currentDraftId || undefined,
+        })
       })
+      const data = await res.json()
+      if (data.draftId) setCurrentDraftId(data.draftId)
       setSendStatus('✓ Sparat som utkast')
       loadDrafts()
     } catch {}
@@ -727,24 +741,32 @@ export default function MailPage({ customers, C, isMobile }: any) {
                 <i className="fas fa-inbox" style={{ display: 'block', fontSize: 28, opacity: 0.2, marginBottom: 8 }} /> Inga mail
               </div>
             ) : listEmails.map(email => {
-              const cust = customers.find((c: any) => c.email && email.from?.toLowerCase().includes(c.email.toLowerCase()))
+              const isDraftItem = email.isDraft || folder === 'drafts'
+              // For drafts, match customer by "to" address; for inbox by "from"
+              const matchAddr = isDraftItem ? email.to : email.from
+              const cust = customers.find((c: any) => c.email && matchAddr?.toLowerCase().includes(c.email.toLowerCase()))
               const isSel = selected?.id === email.id
+              // Display name: for drafts show "Till: [name]", for inbox show sender name
+              const displayName = isDraftItem
+                ? (email.fromName || email.to || 'Okänd mottagare')
+                : (email.fromName || email.from)
               return (
                 <div key={email.id} onClick={() => openEmail(email)}
-                  style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}`, cursor: 'pointer', background: isSel ? `${C.primary}10` : 'transparent', borderLeft: isSel ? `3px solid ${C.primary}` : '3px solid transparent', transition: 'background 0.1s', position: 'relative' as const }}>
+                  style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}`, cursor: 'pointer', background: isSel ? `${C.primary}10` : 'transparent', borderLeft: isSel ? `3px solid ${isDraftItem ? '#f59e0b' : C.primary}` : '3px solid transparent', transition: 'background 0.1s', position: 'relative' as const }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                    {/* Unread dot */}
+                    {/* Indicator dot — orange for draft, blue for unread */}
                     <div style={{ paddingTop: 5, flexShrink: 0 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: email.unread ? C.primary : 'transparent', flexShrink: 0 }} />
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: isDraftItem ? '#f59e0b' : (email.unread ? C.primary : 'transparent'), flexShrink: 0 }} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                        <span style={{ fontSize: 13, fontWeight: email.unread ? 700 : 500, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
-                          {email.fromName || email.from}
+                        <span style={{ fontSize: 13, fontWeight: email.unread || isDraftItem ? 700 : 500, color: isDraftItem ? '#f59e0b' : C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
+                          {isDraftItem ? `Till: ${displayName}` : displayName}
                         </span>
                         <span style={{ fontSize: 11, color: C.textSec, flexShrink: 0, marginLeft: 4 }}>{fmtMailDate(email.date)}</span>
                       </div>
                       <div style={{ fontSize: 12, fontWeight: email.unread ? 600 : 400, color: email.unread ? C.text : C.textSec, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>
+                        {isDraftItem && <span style={{ color: '#f59e0b', fontWeight: 700, marginRight: 4 }}>[Utkast]</span>}
                         {email.subject}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>

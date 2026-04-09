@@ -49,19 +49,23 @@ function cleanHtml(html: string): string {
     .trim()
 }
 
-function mapEmail(m: any) {
+function mapEmail(m: any, isDraft = false) {
+  // Drafts have no "from" — use toRecipients as the display name
+  const toAddr = m.toRecipients?.[0]?.emailAddress?.address || ''
+  const toName = m.toRecipients?.[0]?.emailAddress?.name || toAddr
   return {
     id: m.id,
     subject: m.subject || '(inget ämne)',
-    from: m.from?.emailAddress?.address || '',
-    fromName: m.from?.emailAddress?.name || '',
-    to: m.toRecipients?.[0]?.emailAddress?.address || '',
-    date: m.receivedDateTime,
+    from: isDraft ? toAddr : (m.from?.emailAddress?.address || ''),
+    fromName: isDraft ? toName : (m.from?.emailAddress?.name || ''),
+    to: toAddr,
+    date: m.receivedDateTime || m.lastModifiedDateTime || '',
     unread: !m.isRead,
     preview: m.bodyPreview?.slice(0, 90) || '',
     body: cleanHtml(m.body?.content || ''),
-    replyTo: m.replyTo?.[0]?.emailAddress?.address || m.from?.emailAddress?.address || '',
+    replyTo: m.replyTo?.[0]?.emailAddress?.address || m.from?.emailAddress?.address || toAddr,
     threadId: m.conversationId,
+    isDraft: isDraft,
   }
 }
 
@@ -109,12 +113,13 @@ export async function GET(req: NextRequest) {
       folderId = archiveId || 'inbox'
     }
     const r = await fetch(
-      `https://graph.microsoft.com/v1.0/me/mailFolders/${folderId}/messages?$top=50&$orderby=receivedDateTime desc&$select=id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
+      `https://graph.microsoft.com/v1.0/me/mailFolders/${folderId}/messages?$top=50&$orderby=receivedDateTime desc&$select=id,subject,from,toRecipients,receivedDateTime,lastModifiedDateTime,isRead,bodyPreview,body,replyTo,conversationId`,
       { headers: { Authorization: `Bearer ${token}` } }
     )
     const d = await r.json()
     if (!d.value) return NextResponse.json({ emails: [], error: d.error?.message })
-    const res = NextResponse.json({ emails: d.value.map(mapEmail), nextLink: d['@odata.nextLink'] || null })
+    const isDraft = folderParam === 'drafts'
+    const res = NextResponse.json({ emails: d.value.map((m: any) => mapEmail(m, isDraft)), nextLink: d['@odata.nextLink'] || null })
     return withTokenCookies(res, newAccess, newRefresh, newExpiry)
   }
 
@@ -202,51 +207,62 @@ export async function POST(req: NextRequest) {
 
   if (action === 'saveDraft') {
     if (!token) return NextResponse.json({ success: false })
-    
-    console.log('[saveDraft] Request body:', { to: body.to, subject: body.subject, hasBody: !!body.body, threadId: body.threadId })
-    
-    // If threadId provided, create reply draft (keeps conversation context)
+
+    const htmlContent = body.body || ''
+    // If updating an existing draft
+    if (body.draftId) {
+      const updateRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${body.draftId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          body: { contentType: 'HTML', content: htmlContent.includes('<') ? htmlContent : htmlContent.replace(/\n/g, '<br>') },
+          subject: body.subject,
+          toRecipients: [{ emailAddress: { address: body.to } }],
+        })
+      })
+      return NextResponse.json({ success: updateRes.ok, draftId: body.draftId })
+    }
+
+    // If threadId provided, use createReply to keep thread context
     if (body.threadId) {
       try {
-        console.log('[saveDraft] Creating reply draft for threadId:', body.threadId)
-        // Find original message in thread to reply to
-        const threadRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages?$filter=conversationId eq '${body.threadId}'&$top=1&$orderby=receivedDateTime desc`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
+        // Find the inbox message to reply to (not drafts — only look in inbox/sent)
+        const threadRes = await fetch(
+          `https://graph.microsoft.com/v1.0/me/messages?$filter=conversationId eq '${body.threadId}' and isDraft eq false&$top=1&$orderby=receivedDateTime desc&$select=id,subject,conversationId`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
         const threadData = await threadRes.json()
         const originalMsg = threadData.value?.[0]
-        console.log('[saveDraft] Found original message:', originalMsg?.id)
-        
-        if (originalMsg) {
-          // Create reply draft
-          const replyDraft = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${originalMsg.id}/createReply`, {
+
+        if (originalMsg?.id) {
+          // createReply returns the new draft in Drafts folder
+          const replyRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${originalMsg.id}/createReply`, {
             method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
-          })
-          const draftMsg = await replyDraft.json()
-          console.log('[saveDraft] Created draft:', draftMsg.id)
-          
-          // Update draft body
-          const updateRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draftMsg.id}`, {
-            method: 'PATCH',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              body: { contentType: 'HTML', content: (body.body || '').replace(/\n/g, '<br>') }
-            })
+            body: JSON.stringify({})
           })
-          console.log('[saveDraft] Updated draft body, status:', updateRes.status)
-          return NextResponse.json({ success: true, draftId: draftMsg.id })
+          const draftMsg = await replyRes.json()
+          if (draftMsg.id) {
+            // Patch the body
+            await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draftMsg.id}`, {
+              method: 'PATCH',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                body: { contentType: 'HTML', content: htmlContent.includes('<') ? htmlContent : htmlContent.replace(/\n/g, '<br>') }
+              })
+            })
+            return NextResponse.json({ success: true, draftId: draftMsg.id })
+          }
         }
       } catch (err) {
-        console.error('[saveDraft] Failed to create reply draft:', err)
+        console.error('[saveDraft] createReply failed:', err)
       }
     }
-    
-    // Fallback: create standalone draft
-    console.log('[saveDraft] Creating standalone draft (no threadId)')
+
+    // Fallback: standalone draft
     const message = {
       subject: body.subject,
-      body: { contentType: 'HTML', content: (body.body || '').replace(/\n/g, '<br>') },
+      body: { contentType: 'HTML', content: htmlContent.includes('<') ? htmlContent : htmlContent.replace(/\n/g, '<br>') },
       toRecipients: [{ emailAddress: { address: body.to } }],
     }
     const r = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
@@ -255,7 +271,6 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(message)
     })
     const result = await r.json()
-    console.log('[saveDraft] Standalone draft result:', result)
     return NextResponse.json({ success: r.ok, draftId: result.id })
   }
 
