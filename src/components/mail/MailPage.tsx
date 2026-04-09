@@ -370,15 +370,32 @@ export default function MailPage({ customers, C, isMobile }: any) {
 
   async function openEmail(email: any) {
     setSelected(email)
-    setReplyOpen(false)
-    setEditedDraft('')
-    setCurrentDraftId(null)
     setUserNote('')
     setAttachments([])
     setSendStatus('')
     setAutoCreateStatus('')
     setThreadEmails([])
     setShowThread(false)
+
+    // Om det är ett utkast — öppna direkt i redigeringsläge
+    if (email.isDraft || folder === 'drafts') {
+      setReplyOpen(true)
+      setShowAiPanel(false)
+      setCurrentDraftId(email.id)
+      setEditedDraft(email.body || '')
+      // Matcha kund mot mottagaren (email.to för drafts)
+      const match = customers.find((c: any) =>
+        c.email && email.to && email.to.toLowerCase().includes(c.email.toLowerCase())
+      )
+      setLinkedCustomer(match || null)
+      setCustomerSearch(match ? match.name : '')
+      setParsedForm(null)
+      return
+    }
+
+    setReplyOpen(false)
+    setEditedDraft('')
+    setCurrentDraftId(null)
     setShowAiPanel(false)
     const match = customers.find((c: any) =>
       c.email && email.from && email.from.toLowerCase().includes(c.email.toLowerCase())
@@ -477,16 +494,30 @@ export default function MailPage({ customers, C, isMobile }: any) {
     setSendLoading(true)
     setSendStatus('')
     const scheduledAt = showSchedule && scheduleDate ? `${scheduleDate}T${scheduleTime}:00` : undefined
+    const isDraftMode = selected.isDraft || folder === 'drafts'
+    // For drafts: send directly to the recipient (selected.to); for replies: reply to sender
+    const toAddr = isDraftMode ? selected.to : (selected.replyTo || selected.from)
+    const subject = isDraftMode
+      ? selected.subject
+      : (selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`)
     try {
       const r = await fetch('/api/mail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send', to: selected.replyTo || selected.from, subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`, body: editedDraft, threadId: selected.threadId, attachments, scheduledAt })
+        body: JSON.stringify({ action: 'send', to: toAddr, subject, body: editedDraft, threadId: selected.threadId, attachments, scheduledAt })
       })
       const d = await r.json()
       if (d.success) {
+        // Delete the draft from Drafts folder after sending
+        if (isDraftMode && currentDraftId) {
+          await fetch('/api/mail', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'delete', emailId: currentDraftId })
+          }).catch(() => {})
+        }
         setSendStatus(scheduledAt ? `✓ Schemalagd — ${new Date(scheduledAt).toLocaleString('sv-SE')}` : '✓ Skickat!')
-        if (!scheduledAt) setTimeout(() => { setSelected(null); setReplyOpen(false); loadEmails(folder) }, 1500)
+        if (!scheduledAt) setTimeout(() => { setSelected(null); setReplyOpen(false); loadEmails(folder); loadDrafts() }, 1500)
       } else { setSendStatus('Fel: ' + (d.error || 'Kunde inte skicka')) }
     } catch (e: any) { setSendStatus('Fel: ' + e.message) }
     setSendLoading(false)
@@ -866,20 +897,28 @@ export default function MailPage({ customers, C, isMobile }: any) {
                 <i className="fas fa-arrow-left" />
               </button>
             )}
-            {/* Reply */}
-            <button onClick={openReply} style={{ ...iconBtn(replyOpen), fontWeight: 600 }}>
-              <i className="fas fa-reply" /> Svara
-            </button>
-            {/* Archive */}
-            <button onClick={() => archiveMail(selected.id)} style={iconBtn()}>
-              <i className="fas fa-archive" /> Arkivera
-            </button>
+            {/* Draft badge in toolbar */}
+            {(selected.isDraft || folder === 'drafts') ? (
+              <span style={{ padding: '4px 12px', background: '#f59e0b20', border: '1px solid #f59e0b50', borderRadius: 6, color: '#f59e0b', fontSize: 12, fontWeight: 700 }}>
+                <i className="fas fa-pencil-alt" style={{ marginRight: 5 }} /> Utkast
+              </span>
+            ) : (
+              <button onClick={openReply} style={{ ...iconBtn(replyOpen), fontWeight: 600 }}>
+                <i className="fas fa-reply" /> Svara
+              </button>
+            )}
+            {/* Archive — hide for drafts */}
+            {!(selected.isDraft || folder === 'drafts') && (
+              <button onClick={() => archiveMail(selected.id)} style={iconBtn()}>
+                <i className="fas fa-archive" /> Arkivera
+              </button>
+            )}
             {/* Delete */}
             <button onClick={async () => {
               if (!confirm('Ta bort detta mail?')) return
               try {
                 await fetch('/api/mail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', emailId: selected.id }) })
-                setSelected(null); loadEmails(folder)
+                setSelected(null); loadEmails(folder); loadDrafts()
               } catch {}
             }} style={{ ...iconBtn(), color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
               <i className="fas fa-trash" /> Ta bort
@@ -1020,16 +1059,28 @@ export default function MailPage({ customers, C, isMobile }: any) {
               </div>
             )}
 
-            {/* ── REPLY PANEL (Outlook inline style) ── */}
+            {/* ── REPLY / DRAFT EDIT PANEL (Outlook inline style) ── */}
             {replyOpen && (
-              <div style={{ margin: '0 0 0 0', borderTop: `2px solid ${C.border}`, background: C.surface }}>
+              <div style={{ margin: '0 0 0 0', borderTop: `2px solid ${(selected.isDraft || folder === 'drafts') ? '#f59e0b' : C.border}`, background: C.surface }}>
 
-                {/* Reply header */}
+                {/* Reply / Draft header */}
                 <div style={{ padding: '12px 24px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
                   <Avatar name="Ida Karlsson" size={32} color={C.primary} />
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Svara till: <span style={{ color: C.primary }}>{selected.fromName || selected.from}</span></div>
-                    <div style={{ fontSize: 11, color: C.textSec }}>Re: {selected.subject}</div>
+                    {(selected.isDraft || folder === 'drafts') ? (
+                      <>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+                          <span style={{ color: '#f59e0b', marginRight: 6 }}><i className="fas fa-pencil-alt" /></span>
+                          Redigera utkast → <span style={{ color: C.primary }}>{selected.to || selected.fromName}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textSec }}>{selected.subject}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Svara till: <span style={{ color: C.primary }}>{selected.fromName || selected.from}</span></div>
+                        <div style={{ fontSize: 11, color: C.textSec }}>Re: {selected.subject}</div>
+                      </>
+                    )}
                   </div>
                   <div style={{ flex: 1 }} />
                   <button onClick={() => setReplyOpen(false)} style={{ background: 'none', border: 'none', color: C.textSec, cursor: 'pointer', fontSize: 16 }}>
@@ -1138,8 +1189,8 @@ export default function MailPage({ customers, C, isMobile }: any) {
               </div>
             )}
 
-            {/* If no reply panel: show "Svara" call-to-action at bottom */}
-            {!replyOpen && (
+            {/* If no reply panel: show "Svara" call-to-action at bottom (not for drafts) */}
+            {!replyOpen && !(selected.isDraft || folder === 'drafts') && (
               <div style={{ padding: '12px 24px 28px', borderTop: `1px solid ${C.border}` }}>
                 <button onClick={openReply}
                   style={{ padding: '9px 22px', background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 8, color: C.textSec, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600 }}
