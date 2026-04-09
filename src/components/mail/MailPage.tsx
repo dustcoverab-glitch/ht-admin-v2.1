@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 const STYLE_GUIDE = `
 Du är Ida Karlsson, kundansvarig på HT Ytrengöring AB. Du skriver mail på uppdrag av företaget.
@@ -43,6 +43,227 @@ const FOLDERS: { id: Folder; label: string; icon: string }[] = [
   { id: 'archive', label: 'Arkiverat', icon: 'fas fa-archive' },
   { id: 'compose', label: 'Skriv ny',  icon: 'fas fa-pen' },
 ]
+
+// ══════════════════════════════════════════════════════
+//  RichTextEditor — Outlook-liknande formateringsverktygsfält
+// ══════════════════════════════════════════════════════
+function RichTextEditor({
+  value, onChange, placeholder = 'Skriv ditt meddelande...', C, rows = 14
+}: {
+  value: string; onChange: (v: string) => void;
+  placeholder?: string; C: any; rows?: number
+}) {
+  const editorRef = useRef<HTMLDivElement>(null)
+  const isInternalChange = useRef(false)
+  const savedRange = useRef<Range | null>(null)
+
+  // Sync plain-text value → HTML (only when external change)
+  useEffect(() => {
+    const el = editorRef.current
+    if (!el) return
+    if (isInternalChange.current) { isInternalChange.current = false; return }
+    // Convert plain text to HTML (preserve line breaks)
+    const html = value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+    if (el.innerHTML !== html) el.innerHTML = html
+  }, [value])
+
+  function saveSelection() {
+    const sel = window.getSelection()
+    if (sel && sel.rangeCount > 0) savedRange.current = sel.getRangeAt(0).cloneRange()
+  }
+
+  function restoreSelection() {
+    if (!savedRange.current) return
+    const sel = window.getSelection()
+    if (sel) { sel.removeAllRanges(); sel.addRange(savedRange.current) }
+  }
+
+  function exec(cmd: string, value?: string) {
+    restoreSelection()
+    editorRef.current?.focus()
+    document.execCommand(cmd, false, value)
+    notifyChange()
+  }
+
+  function notifyChange() {
+    if (!editorRef.current) return
+    isInternalChange.current = true
+    // Extract text with newlines
+    const text = editorRef.current.innerHTML
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<\/div>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&nbsp;/g, ' ')
+    onChange(text)
+  }
+
+  function insertLink() {
+    const url = prompt('URL:')
+    if (url) exec('createLink', url)
+  }
+
+  function setFontSize(size: string) {
+    // execCommand fontSize uses 1-7 scale — we use inline style instead
+    restoreSelection()
+    editorRef.current?.focus()
+    document.execCommand('fontSize', false, '7')
+    // Replace all <font size="7"> with proper inline style
+    if (editorRef.current) {
+      editorRef.current.querySelectorAll('font[size="7"]').forEach(el => {
+        const span = document.createElement('span')
+        span.style.fontSize = size
+        span.innerHTML = (el as HTMLElement).innerHTML
+        el.parentNode?.replaceChild(span, el)
+      })
+    }
+    notifyChange()
+  }
+
+  const toolBtn = (active = false) => ({
+    padding: '4px 7px', minWidth: 28, background: active ? `${C.primary}20` : 'transparent',
+    border: `1px solid ${active ? C.primary : 'transparent'}`, borderRadius: 4,
+    color: active ? C.primary : C.textSec, fontSize: 13, cursor: 'pointer',
+    fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    transition: 'all 0.1s', height: 28,
+  })
+
+  const divider = { width: 1, height: 20, background: C.border, margin: '0 4px', flexShrink: 0 as const }
+
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', background: C.input }}>
+      {/* ── Toolbar ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '5px 8px', borderBottom: `1px solid ${C.border}`, background: C.surface, flexWrap: 'wrap' as const }}>
+
+        {/* Font family */}
+        <select onChange={e => exec('fontName', e.target.value)} defaultValue=""
+          style={{ ...toolBtn(), padding: '0 6px', fontSize: 12, height: 28, border: `1px solid ${C.border}`, background: C.input, color: C.text, borderRadius: 4, cursor: 'pointer', minWidth: 90 }}>
+          <option value="" disabled>Font</option>
+          <option value="inherit">Standard</option>
+          <option value="Arial">Arial</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Courier New">Courier New</option>
+          <option value="Trebuchet MS">Trebuchet</option>
+          <option value="Verdana">Verdana</option>
+        </select>
+
+        {/* Font size */}
+        <select onChange={e => setFontSize(e.target.value)} defaultValue=""
+          style={{ ...toolBtn(), padding: '0 6px', fontSize: 12, height: 28, border: `1px solid ${C.border}`, background: C.input, color: C.text, borderRadius: 4, cursor: 'pointer', minWidth: 60 }}>
+          <option value="" disabled>Storlek</option>
+          {['10px','12px','14px','16px','18px','20px','24px','28px','32px'].map(s => (
+            <option key={s} value={s}>{s.replace('px','')}</option>
+          ))}
+        </select>
+
+        <div style={divider} />
+
+        {/* Bold / Italic / Underline / Strikethrough */}
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('bold') }} style={toolBtn()} title="Fet (Ctrl+B)">
+          <strong style={{ fontSize: 13 }}>B</strong>
+        </button>
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('italic') }} style={toolBtn()} title="Kursiv (Ctrl+I)">
+          <em style={{ fontSize: 13, fontStyle: 'italic' }}>I</em>
+        </button>
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('underline') }} style={toolBtn()} title="Understrykning (Ctrl+U)">
+          <span style={{ textDecoration: 'underline', fontSize: 13 }}>U</span>
+        </button>
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('strikeThrough') }} style={toolBtn()} title="Genomstrykning">
+          <span style={{ textDecoration: 'line-through', fontSize: 13 }}>S</span>
+        </button>
+
+        <div style={divider} />
+
+        {/* Text color */}
+        <label title="Textfärg" style={{ ...toolBtn(), position: 'relative' as const, overflow: 'visible' }}>
+          <i className="fas fa-font" style={{ fontSize: 12 }} />
+          <input type="color" defaultValue="#0078d4"
+            onChange={e => { restoreSelection(); exec('foreColor', e.target.value) }}
+            onMouseDown={() => saveSelection()}
+            style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', top: 0, left: 0, cursor: 'pointer' }} />
+        </label>
+
+        {/* Highlight color */}
+        <label title="Markeringsfärg" style={{ ...toolBtn(), position: 'relative' as const, overflow: 'visible' }}>
+          <i className="fas fa-highlighter" style={{ fontSize: 12 }} />
+          <input type="color" defaultValue="#ffff00"
+            onChange={e => { restoreSelection(); exec('hiliteColor', e.target.value) }}
+            onMouseDown={() => saveSelection()}
+            style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', top: 0, left: 0, cursor: 'pointer' }} />
+        </label>
+
+        <div style={divider} />
+
+        {/* Alignment */}
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('justifyLeft') }} style={toolBtn()} title="Vänsterjustera">
+          <i className="fas fa-align-left" style={{ fontSize: 11 }} />
+        </button>
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('justifyCenter') }} style={toolBtn()} title="Centrera">
+          <i className="fas fa-align-center" style={{ fontSize: 11 }} />
+        </button>
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('justifyRight') }} style={toolBtn()} title="Högerjustera">
+          <i className="fas fa-align-right" style={{ fontSize: 11 }} />
+        </button>
+
+        <div style={divider} />
+
+        {/* Lists */}
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('insertUnorderedList') }} style={toolBtn()} title="Punktlista">
+          <i className="fas fa-list-ul" style={{ fontSize: 11 }} />
+        </button>
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('insertOrderedList') }} style={toolBtn()} title="Numrerad lista">
+          <i className="fas fa-list-ol" style={{ fontSize: 11 }} />
+        </button>
+
+        {/* Indent */}
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('indent') }} style={toolBtn()} title="Indrag">
+          <i className="fas fa-indent" style={{ fontSize: 11 }} />
+        </button>
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('outdent') }} style={toolBtn()} title="Minska indrag">
+          <i className="fas fa-outdent" style={{ fontSize: 11 }} />
+        </button>
+
+        <div style={divider} />
+
+        {/* Link */}
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); insertLink() }} style={toolBtn()} title="Infoga länk">
+          <i className="fas fa-link" style={{ fontSize: 11 }} />
+        </button>
+
+        {/* Clear formatting */}
+        <button onMouseDown={e => { e.preventDefault(); saveSelection(); exec('removeFormat') }} style={toolBtn()} title="Rensa formatering">
+          <i className="fas fa-remove-format" style={{ fontSize: 11 }} />
+        </button>
+      </div>
+
+      {/* ── Editor area ── */}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={notifyChange}
+        onKeyUp={saveSelection}
+        onMouseUp={saveSelection}
+        onFocus={saveSelection}
+        data-placeholder={placeholder}
+        style={{
+          minHeight: `${rows * 1.8}em`, maxHeight: '60vh', overflowY: 'auto',
+          padding: '12px 14px', outline: 'none', fontSize: 14, lineHeight: 1.8,
+          color: C.text, fontFamily: 'inherit', wordBreak: 'break-word',
+        }}
+      />
+      <style>{`
+        [contenteditable]:empty:before {
+          content: attr(data-placeholder);
+          color: ${C.textSec};
+          opacity: 0.6;
+          pointer-events: none;
+        }
+      `}</style>
+    </div>
+  )
+}
 
 export default function MailPage({ customers, C, isMobile }: any) {
   const [emails, setEmails] = useState<any[]>([])
@@ -576,7 +797,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: C.textSec, display: 'block', marginBottom: 4 }}>Meddelande</label>
-                <textarea value={composeBody} onChange={e => setComposeBody(e.target.value)} rows={16} placeholder="Skriv ditt meddelande..." style={{ ...inp, resize: 'vertical' as const, lineHeight: 1.7 }} />
+                <RichTextEditor value={composeBody} onChange={setComposeBody} placeholder="Skriv ditt meddelande..." C={C} rows={16} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const, alignItems: 'center', marginBottom: 14 }}>
@@ -845,9 +1066,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
 
                 {/* Text area */}
                 <div style={{ padding: '16px 24px' }}>
-                  <textarea value={editedDraft} onChange={e => setEditedDraft(e.target.value)} rows={14}
-                    placeholder="Skriv ditt svar här, eller generera med AI ovan..."
-                    style={{ ...inp, resize: 'vertical' as const, lineHeight: 1.8, fontSize: 14 }} />
+                  <RichTextEditor value={editedDraft} onChange={setEditedDraft} placeholder="Skriv ditt svar här, eller generera med AI ovan..." C={C} rows={14} />
                 </div>
 
                 {/* Attachments + schedule + send toolbar */}
