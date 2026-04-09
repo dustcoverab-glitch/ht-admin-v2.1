@@ -160,7 +160,11 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
       {/* Header */}
       <div style={{padding:'14px 16px',borderBottom:`1px solid ${border}`,display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg,#3b82f6,#6366f1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>🤖</div>
+          <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg,#3b82f6,#6366f1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
+            </svg>
+          </div>
           <div>
             <div style={{fontSize:13,fontWeight:700,color:textMain,letterSpacing:'-0.2px'}}>AI-assistent</div>
             <div style={{fontSize:10,color:'#10b981',fontWeight:500}}>● Online</div>
@@ -176,12 +180,6 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
 
         {showQuick && messages.length === 0 && (
           <div style={{animation:'fadeIn 0.3s ease'}}>
-            <div style={{padding:'16px',background:surface,borderRadius:12,border:`1px solid ${border}`,marginBottom:16}}>
-              <div style={{fontSize:13,fontWeight:700,color:textMain,marginBottom:4}}>Hej! Vad kan jag hjälpa dig med?</div>
-              <div style={{fontSize:12,color:textSec,lineHeight:1.6}}>
-                Jag kan skapa kunder, logga tid, flytta processteg, visa statistik, läsa av bilder och offerter — fråga mig vad som helst om jobbet.
-              </div>
-            </div>
             <div style={{fontSize:11,fontWeight:700,color:textSec,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:8}}>Snabbval</div>
             <div style={{display:'flex',flexDirection:'column',gap:6}}>
               {QUICK_ACTIONS.map(qa => (

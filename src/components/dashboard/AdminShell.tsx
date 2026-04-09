@@ -215,10 +215,10 @@ function FloatingAI({ onAction, dark, C }: { onAction: () => void; dark: boolean
         <div style={{
           position: 'fixed', bottom: btnSize + 16 + 12, right: 20, zIndex: 2000,
           width: 380, height: 560,
-          background: C?.surface ?? '#1a1a1a',
-          border: `1px solid ${C?.border ?? '#333'}`,
+          background: dark ? '#252525' : '#f0f0f0',
+          border: `1px solid ${dark ? '#3a3a3a' : '#c8c8c8'}`,
           borderRadius: 16,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.45)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
           animation: 'floatIn 0.2s ease',
         }}>
@@ -232,7 +232,7 @@ function FloatingAI({ onAction, dark, C }: { onAction: () => void; dark: boolean
             onClose={() => setOpen(false)}
             onAction={handleAction}
             dark={dark}
-            C={C}
+            C={C ? { ...C, surface: dark ? '#2a2a2a' : '#ececec', bg: dark ? '#1e1e1e' : '#e4e4e4', border: dark ? '#3a3a3a' : '#c8c8c8' } : C}
           />
         </div>
       )}
@@ -244,17 +244,21 @@ function FloatingAI({ onAction, dark, C }: { onAction: () => void; dark: boolean
         style={{
           position: 'fixed', bottom: 20, right: 20, zIndex: 2001,
           width: btnSize, height: btnSize, borderRadius: '50%',
-          background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
+          background: open ? '#4b5563' : 'linear-gradient(135deg, #3b82f6, #6366f1)',
           border: 'none', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 4px 20px rgba(99,102,241,0.5)',
-          transition: 'transform 0.15s, box-shadow 0.15s',
-          fontSize: 24,
+          boxShadow: open ? '0 4px 16px rgba(0,0,0,0.3)' : '0 4px 20px rgba(99,102,241,0.5)',
+          transition: 'transform 0.15s, box-shadow 0.15s, background 0.15s',
         }}
-        onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.08)'; e.currentTarget.style.boxShadow = '0 6px 28px rgba(99,102,241,0.7)' }}
-        onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(99,102,241,0.5)' }}
+        onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.08)' }}
+        onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
       >
-        {open ? '✕' : '🤖'}
+        {open
+          ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
+            </svg>
+        }
         {/* Unread dot */}
         {unread && !open && (
           <span style={{
