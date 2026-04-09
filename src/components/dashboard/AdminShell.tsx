@@ -196,6 +196,81 @@ type JobForm={name:string,selectedServices:string[],serviceData:Record<string,Sv
 const EMPTY_JOB_FORM:JobForm={name:'',selectedServices:[],serviceData:{}}
 
 /* ═══════════════════════════════════════════════════════════════
+   FLOATING AI CHAT BUBBLE
+═══════════════════════════════════════════════════════════════ */
+function FloatingAI({ onAction, dark, C }: { onAction: () => void; dark: boolean; C: any }) {
+  const [open, setOpen] = React.useState(false)
+  const [unread, setUnread] = React.useState(false)
+
+  // Show unread dot if closed and AI does something
+  function handleAction() { onAction(); if (!open) setUnread(true) }
+  function handleOpen() { setOpen(true); setUnread(false) }
+
+  const btnSize = 56
+
+  return (
+    <>
+      {/* Chat window */}
+      {open && (
+        <div style={{
+          position: 'fixed', bottom: btnSize + 16 + 12, right: 20, zIndex: 2000,
+          width: 380, height: 560,
+          background: C?.surface ?? '#1a1a1a',
+          border: `1px solid ${C?.border ?? '#333'}`,
+          borderRadius: 16,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          animation: 'floatIn 0.2s ease',
+        }}>
+          <style>{`
+            @keyframes floatIn {
+              from { opacity: 0; transform: translateY(16px) scale(0.97); }
+              to   { opacity: 1; transform: translateY(0) scale(1); }
+            }
+          `}</style>
+          <AIPanel
+            onClose={() => setOpen(false)}
+            onAction={handleAction}
+            dark={dark}
+            C={C}
+          />
+        </div>
+      )}
+
+      {/* Floating bubble button */}
+      <button
+        onClick={() => open ? setOpen(false) : handleOpen()}
+        title="AI-assistent"
+        style={{
+          position: 'fixed', bottom: 20, right: 20, zIndex: 2001,
+          width: btnSize, height: btnSize, borderRadius: '50%',
+          background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
+          border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 4px 20px rgba(99,102,241,0.5)',
+          transition: 'transform 0.15s, box-shadow 0.15s',
+          fontSize: 24,
+        }}
+        onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.08)'; e.currentTarget.style.boxShadow = '0 6px 28px rgba(99,102,241,0.7)' }}
+        onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(99,102,241,0.5)' }}
+      >
+        {open ? '✕' : '🤖'}
+        {/* Unread dot */}
+        {unread && !open && (
+          <span style={{
+            position: 'absolute', top: 4, right: 4,
+            width: 12, height: 12, borderRadius: '50%',
+            background: '#ef4444', border: '2px solid white',
+          }} />
+        )}
+      </button>
+    </>
+  )
+}
+
+import React from 'react'
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function AdminShell({onLogout}:{onLogout:()=>void}){
@@ -1588,6 +1663,9 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
           <AIPanel onClose={()=>setShowAI(false)} onAction={handleAIAction} dark={dark} C={C as any}/>
         </div>
       )}
+
+      {/* ── FLOATING AI CHAT BUBBLE ── */}
+      <FloatingAI onAction={handleAIAction} dark={dark} C={C as any} />
 
       {/* ── KUND-MODAL ── */}
       {showModal&&current&&(
