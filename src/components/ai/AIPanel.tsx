@@ -101,14 +101,26 @@ export default function AIPanel({ onAction, onClose, dark=false, C }:Props){
     setInput(''); setPendingImage(null); setPendingImageName(null); setLoading(true)
 
     try {
+      // pendingImage is a data-URL like "data:image/jpeg;base64,/9j/..."
+      // Split it so we can send raw base64 to the server (Claude can't fetch internal URLs)
+      let imageBase64: string | undefined
+      let imageMediaType: string | undefined
+      const imgForThisCall = pendingImage  // capture before clearing
+      if (imgForThisCall && imgForThisCall.startsWith('data:')) {
+        const [meta, b64] = imgForThisCall.split(',')
+        imageBase64 = b64
+        imageMediaType = meta.replace('data:', '').replace(';base64', '')
+      }
+
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text || 'Läs av bilden.',
           sessionId: 'admin-session',
-          imageUrl: pendingImage ?? undefined,
-          hasImage: !!pendingImage,
+          hasImage: !!imgForThisCall,
+          imageBase64: imageBase64 ?? undefined,
+          imageMediaType: imageMediaType ?? undefined,
         }),
       })
       const data = await res.json()
