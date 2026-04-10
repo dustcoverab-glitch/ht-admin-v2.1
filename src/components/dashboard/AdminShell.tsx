@@ -38,8 +38,9 @@ const SERVICE_STEPS: Record<string,{id:number,label:string}[]> = {
     {id:3,label:'Offert'},
     {id:4,label:'Bokat'},
     {id:5,label:'Betongtvätt'},
-    {id:6,label:'Fakturering'},
-    {id:7,label:'Fakturerad'},
+    {id:6,label:'Impregnering'},
+    {id:7,label:'Fakturering'},
+    {id:8,label:'Fakturerad'},
   ],
   altantvatt: [
     {id:0,label:'Ej påbörjad'},
@@ -207,14 +208,20 @@ function FloatingAI({ onAction, dark, C }: { onAction: () => void; dark: boolean
   function handleOpen() { setOpen(true); setUnread(false) }
 
   const btnSize = 56
+  const btnRight = 20
+  const btnBottom = 20
 
   return (
     <>
-      {/* Chat window */}
+      {/* Chat window — positioned so its input area clears the bubble */}
       {open && (
         <div style={{
-          position: 'fixed', bottom: btnSize + 16 + 12, right: 20, zIndex: 2000,
-          width: 380, height: 560,
+          position: 'fixed',
+          bottom: btnBottom + btnSize + 12,
+          right: btnRight,
+          zIndex: 2000,
+          width: 380,
+          height: 560,
           background: dark ? '#252525' : '#f0f0f0',
           border: `1px solid ${dark ? '#3a3a3a' : '#c8c8c8'}`,
           borderRadius: 16,
@@ -237,13 +244,18 @@ function FloatingAI({ onAction, dark, C }: { onAction: () => void; dark: boolean
         </div>
       )}
 
-      {/* Floating bubble button */}
+      {/* Floating bubble button — sits bottom-right, BELOW the chat window */}
       <button
         onClick={() => open ? setOpen(false) : handleOpen()}
         title="AI-assistent"
         style={{
-          position: 'fixed', bottom: 20, right: 20, zIndex: 2001,
-          width: btnSize, height: btnSize, borderRadius: '50%',
+          position: 'fixed',
+          bottom: btnBottom,
+          right: btnRight,
+          zIndex: 2001,
+          width: btnSize,
+          height: btnSize,
+          borderRadius: '50%',
           background: open ? '#4b5563' : 'linear-gradient(135deg, #3b82f6, #6366f1)',
           border: 'none', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1668,8 +1680,8 @@ export default function AdminShell({onLogout}:{onLogout:()=>void}){
         </div>
       )}
 
-      {/* ── FLOATING AI CHAT BUBBLE ── */}
-      <FloatingAI onAction={handleAIAction} dark={dark} C={C as any} />
+      {/* ── FLOATING AI CHAT BUBBLE — hide when sidebar AI panel is open ── */}
+      {!showAI && <FloatingAI onAction={handleAIAction} dark={dark} C={C as any} />}
 
       {/* ── KUND-MODAL ── */}
       {showModal&&current&&(
