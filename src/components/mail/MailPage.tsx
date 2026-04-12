@@ -306,6 +306,15 @@ export default function MailPage({ customers, C, isMobile }: any) {
   const [composeAttachments, setComposeAttachments] = useState<any[]>([])
   const composeFileRef = useRef<HTMLInputElement>(null)
 
+  // Compose — autocomplete på Till-fältet
+  const [composeToSuggestions, setComposeToSuggestions] = useState<any[]>([])
+  const [composeToShowSugg, setComposeToShowSugg] = useState(false)
+  const [composeToActiveSugg, setComposeToActiveSugg] = useState(-1)
+  const composeToRef = useRef<HTMLDivElement>(null)
+
+  // Compose — AI-generering
+  const [composeAiLoading, setComposeAiLoading] = useState(false)
+
   // AI kund
   const [aiCreateLoading, setAiCreateLoading] = useState(false)
   const [autoCreateStatus, setAutoCreateStatus] = useState('')
@@ -840,10 +849,82 @@ export default function MailPage({ customers, C, isMobile }: any) {
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: 28, maxWidth: 760 }}>
             <div style={{ display: 'grid', gap: 14, marginBottom: 16 }}>
-              <div>
+
+              {/* ── Till-fältet med autocomplete ── */}
+              <div ref={composeToRef} style={{ position: 'relative' as const }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: C.textSec, display: 'block', marginBottom: 4 }}>Till</label>
-                <input value={composeTo} onChange={e => setComposeTo(e.target.value)} placeholder="mottagare@email.se" style={inp} />
+                <input
+                  value={composeTo}
+                  onChange={e => {
+                    const val = e.target.value
+                    setComposeTo(val)
+                    setComposeToActiveSugg(-1)
+                    if (val.trim().length >= 1) {
+                      const q = val.toLowerCase()
+                      const hits = customers.filter((c: any) =>
+                        (c.name && c.name.toLowerCase().includes(q)) ||
+                        (c.email && c.email.toLowerCase().includes(q))
+                      ).slice(0, 8)
+                      setComposeToSuggestions(hits)
+                      setComposeToShowSugg(hits.length > 0)
+                    } else {
+                      setComposeToShowSugg(false)
+                    }
+                  }}
+                  onKeyDown={e => {
+                    if (!composeToShowSugg) return
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      setComposeToActiveSugg(prev => Math.min(prev + 1, composeToSuggestions.length - 1))
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      setComposeToActiveSugg(prev => Math.max(prev - 1, 0))
+                    } else if (e.key === 'Enter' && composeToActiveSugg >= 0) {
+                      e.preventDefault()
+                      const chosen = composeToSuggestions[composeToActiveSugg]
+                      setComposeTo(chosen.email || '')
+                      setComposeToShowSugg(false)
+                      setComposeToActiveSugg(-1)
+                    } else if (e.key === 'Escape') {
+                      setComposeToShowSugg(false)
+                    }
+                  }}
+                  onBlur={() => setTimeout(() => setComposeToShowSugg(false), 150)}
+                  placeholder="mottagare@email.se"
+                  style={inp}
+                  autoComplete="off"
+                />
+                {/* Autocomplete-dropdown */}
+                {composeToShowSugg && (
+                  <div style={{
+                    position: 'absolute' as const, top: '100%', left: 0, right: 0,
+                    background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
+                    zIndex: 200, boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
+                    maxHeight: 220, overflowY: 'auto' as const, marginTop: 2,
+                  }}>
+                    {composeToSuggestions.map((c: any, i: number) => (
+                      <div key={c.id || i}
+                        onMouseDown={() => {
+                          setComposeTo(c.email || '')
+                          setComposeToShowSugg(false)
+                          setComposeToActiveSugg(-1)
+                        }}
+                        style={{
+                          padding: '8px 12px', cursor: 'pointer', fontSize: 13,
+                          background: i === composeToActiveSugg ? `${C.primary}18` : 'transparent',
+                          color: C.text, borderBottom: i < composeToSuggestions.length - 1 ? `1px solid ${C.border}` : 'none',
+                        }}
+                        onMouseEnter={e => { if (i !== composeToActiveSugg) (e.currentTarget as HTMLElement).style.background = `${C.primary}10` }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i === composeToActiveSugg ? `${C.primary}18` : 'transparent' }}
+                      >
+                        <div style={{ fontWeight: 600 }}>{c.name}</div>
+                        <div style={{ color: C.textSec, fontSize: 11 }}>{c.email}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: C.textSec, display: 'block', marginBottom: 4 }}>Ämne</label>
                 <input value={composeSubject} onChange={e => setComposeSubject(e.target.value)} placeholder="Ämnesrad" style={inp} />
@@ -853,6 +934,51 @@ export default function MailPage({ customers, C, isMobile }: any) {
                 <RichTextEditor value={composeBody} onChange={setComposeBody} placeholder="Skriv ditt meddelande..." C={C} rows={16} />
               </div>
             </div>
+
+            {/* ── AI-genereringspanel ── */}
+            <div style={{ marginBottom: 14, padding: '10px 14px', background: `${C.primary}08`, border: `1px solid ${C.primary}25`, borderRadius: 8 }}>
+              <button
+                onClick={async () => {
+                  if (!composeSubject.trim()) return
+                  setComposeAiLoading(true)
+                  try {
+                    const linkedCust = customers.find((c: any) =>
+                      c.email && composeTo && composeTo.toLowerCase().includes(c.email.toLowerCase())
+                    )
+                    const linkedInfo = linkedCust
+                      ? `${linkedCust.name}${linkedCust.address ? ', ' + linkedCust.address : ''}${linkedCust.note ? ' — ' + linkedCust.note : ''}`
+                      : ''
+                    const prompt = `${STYLE_GUIDE}\n\nSkriv ett nytt utgående mail baserat på:\nÄmne: ${composeSubject}\n${linkedInfo ? `Kund: ${linkedInfo}` : ''}\n\nSvara BARA med mailtexten.`
+                    const r = await fetch('/api/ai', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ message: prompt, customers: [] })
+                    })
+                    const d = await r.json()
+                    const generated = d.reply || d.message || ''
+                    if (generated.trim()) setComposeBody(generated)
+                  } catch {}
+                  setComposeAiLoading(false)
+                }}
+                disabled={!composeSubject.trim() || composeAiLoading}
+                style={{
+                  padding: '7px 16px', background: 'transparent',
+                  border: `1px solid ${C.primary}50`, borderRadius: 6,
+                  color: C.primary, fontSize: 12, cursor: !composeSubject.trim() || composeAiLoading ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6,
+                  opacity: !composeSubject.trim() ? 0.5 : 1, fontWeight: 600,
+                }}
+              >
+                {composeAiLoading
+                  ? <><i className="fas fa-spinner fa-spin" /> Genererar...</>
+                  : <><span>✨</span> Generera med AI</>
+                }
+              </button>
+              {!composeSubject.trim() && (
+                <span style={{ marginLeft: 10, fontSize: 11, color: C.textSec }}>Fyll i ämnesraden först</span>
+              )}
+            </div>
+
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const, alignItems: 'center', marginBottom: 14 }}>
               <button onClick={() => composeFileRef.current?.click()} style={iconBtn()}>
                 <i className="fas fa-paperclip" /> Bifoga
