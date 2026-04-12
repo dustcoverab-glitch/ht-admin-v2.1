@@ -560,7 +560,13 @@ export default function MailPage({ customers, C, isMobile }: any) {
           }).catch(() => {})
         }
         setSendStatus(scheduledAt ? `✓ Schemalagd — ${new Date(scheduledAt).toLocaleString('sv-SE')}` : '✓ Skickat!')
-        if (!scheduledAt) setTimeout(() => { setSelected(null); setReplyOpen(false); loadEmails(folder); loadDrafts() }, 1500)
+        if (!scheduledAt) setTimeout(() => {
+          setSelected(null); setReplyOpen(false)
+          // Ladda om skickat + aktuell mapp
+          loadDrafts()
+          loadEmails('sent')
+          if (folder !== 'sent') loadEmails(folder)
+        }, 1500)
       } else { setSendStatus('Fel: ' + (d.error || 'Kunde inte skicka')) }
     } catch (e: any) { setSendStatus('Fel: ' + e.message) }
     setSendLoading(false)
@@ -608,7 +614,11 @@ export default function MailPage({ customers, C, isMobile }: any) {
           fetch('/api/mail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', emailId: composeDraftId }) }).catch(() => {})
         }
         setComposeStatus(scheduledAt ? `✓ Schemalagd — ${new Date(scheduledAt).toLocaleString('sv-SE')}` : '✓ Skickat!')
-        if (!scheduledAt) { setComposeTo(''); setComposeSubject(''); setComposeBody(''); setComposeAttachments([]); setComposeDraftId(null); loadDrafts() }
+        if (!scheduledAt) {
+          setComposeTo(''); setComposeSubject(''); setComposeBody(''); setComposeAttachments([]); setComposeDraftId(null)
+          // Byt till Skickat och ladda om efter kort delay så servern hinner indexera mailet
+          setTimeout(() => { setFolder('sent'); loadEmails('sent'); loadDrafts() }, 1500)
+        }
       } else { setComposeStatus('Fel: ' + (d.error || 'Kunde inte skicka')) }
     } catch (e: any) { setComposeStatus('Fel: ' + e.message) }
   }
