@@ -937,6 +937,7 @@ export default function MailPage({ customers, C, isMobile }: any) {
 
             {/* ── AI-genereringspanel ── */}
             <div style={{ marginBottom: 14, padding: '10px 14px', background: `${C.primary}08`, border: `1px solid ${C.primary}25`, borderRadius: 8 }}>
+              {/* ── AI-knappar: Generera (tom ruta) + Finputsa (redigera det skrivna) ── */}
               <button
                 onClick={async () => {
                   if (!composeSubject.trim()) return
@@ -974,8 +975,48 @@ export default function MailPage({ customers, C, isMobile }: any) {
                   : <><span>✨</span> Generera med AI</>
                 }
               </button>
-              {!composeSubject.trim() && (
-                <span style={{ marginLeft: 10, fontSize: 11, color: C.textSec }}>Fyll i ämnesraden först</span>
+
+              {/* Finputsa-knapp — aktiv när det finns text i rutan */}
+              <button
+                onClick={async () => {
+                  if (!composeBody.trim()) return
+                  setComposeAiLoading(true)
+                  try {
+                    const linkedCust = customers.find((c: any) =>
+                      c.email && composeTo && composeTo.toLowerCase().includes(c.email.toLowerCase())
+                    )
+                    const linkedInfo = linkedCust
+                      ? `${linkedCust.name}${linkedCust.address ? ', ' + linkedCust.address : ''}${linkedCust.note ? ' — ' + linkedCust.note : ''}`
+                      : ''
+                    const prompt = `${STYLE_GUIDE}\n\nNedan är ett slarvigt skrivet mailutkast från mig. Gör det till ett professionellt, välformulerat mail i Ida Karlssons stil. Behåll all information och alla instruktioner, men förbättra språk, ton och struktur. ${linkedInfo ? `Kund: ${linkedInfo}.` : ''}\n\nMITT UTKAST:\n${composeBody}\n\nSvara BARA med den förbättrade mailtexten.`
+                    const r = await fetch('/api/ai', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ message: prompt, customers: [] })
+                    })
+                    const d = await r.json()
+                    const improved = d.reply || d.message || ''
+                    if (improved.trim()) setComposeBody(improved)
+                  } catch {}
+                  setComposeAiLoading(false)
+                }}
+                disabled={!composeBody.trim() || composeAiLoading}
+                style={{
+                  padding: '7px 16px', background: 'transparent',
+                  border: `1px solid #8b5cf660`, borderRadius: 6,
+                  color: '#8b5cf6', fontSize: 12, cursor: !composeBody.trim() || composeAiLoading ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6,
+                  opacity: !composeBody.trim() ? 0.4 : 1, fontWeight: 600,
+                }}
+              >
+                {composeAiLoading
+                  ? <><i className="fas fa-spinner fa-spin" /> Jobbar...</>
+                  : <><i className="fas fa-wand-magic-sparkles" /> Finputsa</>
+                }
+              </button>
+
+              {!composeSubject.trim() && !composeBody.trim() && (
+                <span style={{ marginLeft: 6, fontSize: 11, color: C.textSec }}>Fyll i ämne för att generera, eller skriv något och finputsa</span>
               )}
             </div>
 
