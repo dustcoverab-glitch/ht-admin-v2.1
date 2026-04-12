@@ -315,6 +315,11 @@ export default function MailPage({ customers, C, isMobile }: any) {
   // Compose — AI-generering
   const [composeAiLoading, setComposeAiLoading] = useState(false)
 
+  // Compose — auto-spara utkast
+  const [composeDraftId, setComposeDraftId] = useState<string|null>(null)
+  const [composeSaveStatus, setComposeSaveStatus] = useState('')
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // AI kund
   const [aiCreateLoading, setAiCreateLoading] = useState(false)
   const [autoCreateStatus, setAutoCreateStatus] = useState('')
@@ -327,6 +332,35 @@ export default function MailPage({ customers, C, isMobile }: any) {
   }
 
   useEffect(() => { checkConnection() }, [])
+
+  // ── Auto-spara compose-utkast (debounce 2s efter senaste tangenttryckning)
+  useEffect(() => {
+    if (folder !== 'compose') return
+    if (!composeTo && !composeSubject && !composeBody.trim()) return
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+    autoSaveTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/mail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'saveDraft',
+            to: composeTo || 'utkast@placeholder.invalid',
+            subject: composeSubject || '(Inget ämne)',
+            body: composeBody,
+            draftId: composeDraftId || undefined,
+          })
+        })
+        const data = await res.json()
+        if (data.draftId) {
+          setComposeDraftId(data.draftId)
+          loadDrafts()
+        }
+        setComposeSaveStatus('Sparat som utkast')
+        setTimeout(() => setComposeSaveStatus(''), 2000)
+      } catch {}
+    }, 2000)
+  }, [composeTo, composeSubject, composeBody, folder])
 
   async function checkConnection() {
     try {
@@ -558,16 +592,23 @@ export default function MailPage({ customers, C, isMobile }: any) {
     if (!composeTo || !composeSubject || !composeBody.trim()) return
     setComposeStatus('Skickar...')
     const scheduledAt = showSchedule && scheduleDate ? `${scheduleDate}T${scheduleTime}:00` : undefined
+    // Försök matcha mottagarens namn från kundlistan
+    const toCustomer = customers.find((c: any) => c.email && composeTo.toLowerCase() === c.email.toLowerCase())
+    const toName = toCustomer ? toCustomer.name : composeTo
     try {
       const r = await fetch('/api/mail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send', to: composeTo, subject: composeSubject, body: composeBody, attachments: composeAttachments, scheduledAt })
+        body: JSON.stringify({ action: 'send', to: composeTo, toName, subject: composeSubject, body: composeBody, attachments: composeAttachments, scheduledAt })
       })
       const d = await r.json()
       if (d.success) {
+        // Ta bort utkastet om det finns
+        if (composeDraftId) {
+          fetch('/api/mail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', emailId: composeDraftId }) }).catch(() => {})
+        }
         setComposeStatus(scheduledAt ? `✓ Schemalagd — ${new Date(scheduledAt).toLocaleString('sv-SE')}` : '✓ Skickat!')
-        if (!scheduledAt) { setComposeTo(''); setComposeSubject(''); setComposeBody(''); setComposeAttachments([]) }
+        if (!scheduledAt) { setComposeTo(''); setComposeSubject(''); setComposeBody(''); setComposeAttachments([]); setComposeDraftId(null); loadDrafts() }
       } else { setComposeStatus('Fel: ' + (d.error || 'Kunde inte skicka')) }
     } catch (e: any) { setComposeStatus('Fel: ' + e.message) }
   }
@@ -1048,6 +1089,8 @@ export default function MailPage({ customers, C, isMobile }: any) {
                 <i className="fas fa-paper-plane" /> {showSchedule && scheduleDate ? 'Schemalägg' : 'Skicka'}
               </button>
               {composeStatus && <span style={{ fontSize: 13, fontWeight: 600, color: composeStatus.startsWith('✓') ? '#10b981' : '#ef4444' }}>{composeStatus}</span>}
+              {!composeStatus && composeSaveStatus && <span style={{ fontSize: 11, color: C.textSec }}><i className="fas fa-check" style={{ marginRight: 4, color: '#10b981' }} />{composeSaveStatus}</span>}
+              {!composeStatus && !composeSaveStatus && composeDraftId && <span style={{ fontSize: 11, color: C.textSec }}><i className="fas fa-save" style={{ marginRight: 4 }} />Utkast sparat</span>}
             </div>
           </div>
         </div>

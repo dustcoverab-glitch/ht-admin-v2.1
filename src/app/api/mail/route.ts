@@ -300,10 +300,14 @@ export async function POST(req: NextRequest) {
     const htmlBody = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.6;max-width:600px">${
       (body.body || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')
     }<br><br><img src="${logoUrl}" alt="HT Ytrengöring" style="width:140px;height:auto;margin-top:8px" /></div>`
+    // Build recipient — include name if provided, otherwise use address as name
+    // This is required for external (non-Exchange) addresses like Gmail
+    const toAddress = (body.to || '').trim()
+    const toName = body.toName || toAddress
     const message: any = {
       subject: body.subject,
       body: { contentType: 'HTML', content: htmlBody },
-      toRecipients: [{ emailAddress: { address: body.to } }],
+      toRecipients: [{ emailAddress: { address: toAddress, name: toName } }],
     }
     if (body.attachments?.length) {
       message.attachments = body.attachments.map((a: any) => ({
